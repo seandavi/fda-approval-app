@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { trackEvent } from "./analytics";
 import { AboutPage } from "./components/AboutPage";
 import { InputPanel, type InputMode } from "./components/InputPanel";
+import { ResultsSummary } from "./components/ResultsSummary";
 import { genericFeedbackUrl } from "./feedback";
 import { ProgressBar } from "./components/ProgressBar";
 import { ResultsTable } from "./components/ResultsTable";
@@ -128,26 +129,26 @@ export function App() {
 
   return (
     <div className="min-h-screen">
-      <header className="bg-white border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
+      <header className="bg-gradient-to-b from-violet-700 to-violet-900 text-white">
+        <div className="max-w-6xl mx-auto px-4 py-6 flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-lg font-semibold text-slate-900">
+            <h1 className="text-2xl font-bold tracking-tight">
               FDA Drug Approval Lookup
             </h1>
-            <p className="text-xs text-slate-500">
-              Layered resolution across openFDA, RxNorm, ChEMBL, and
-              ClinicalTrials.gov.
+            <p className="text-sm text-violet-200 mt-1">
+              Resolve drug names — brands, INNs, or internal codes — to FDA
+              approval status across four public databases.
             </p>
           </div>
           <div className="flex items-center gap-4">
-            <nav className="inline-flex rounded-md bg-slate-100 p-0.5 text-xs">
+            <nav className="inline-flex rounded-md bg-white/15 ring-1 ring-white/20 p-0.5 text-xs backdrop-blur">
               <button
                 type="button"
                 onClick={() => setView("lookup")}
-                className={`px-3 py-1.5 rounded ${
+                className={`px-3 py-1.5 rounded transition-colors ${
                   view === "lookup"
-                    ? "bg-white shadow-sm font-medium text-slate-900"
-                    : "text-slate-600 hover:text-slate-900"
+                    ? "bg-white text-violet-900 font-semibold shadow-sm"
+                    : "text-violet-100 hover:text-white"
                 }`}
               >
                 Lookup
@@ -155,10 +156,10 @@ export function App() {
               <button
                 type="button"
                 onClick={() => setView("about")}
-                className={`px-3 py-1.5 rounded ${
+                className={`px-3 py-1.5 rounded transition-colors ${
                   view === "about"
-                    ? "bg-white shadow-sm font-medium text-slate-900"
-                    : "text-slate-600 hover:text-slate-900"
+                    ? "bg-white text-violet-900 font-semibold shadow-sm"
+                    : "text-violet-100 hover:text-white"
                 }`}
               >
                 About
@@ -168,7 +169,7 @@ export function App() {
               href={genericFeedbackUrl()}
               target="_blank"
               rel="noreferrer"
-              className="text-xs text-slate-600 hover:text-sky-700 inline-flex items-center gap-1"
+              className="text-xs text-violet-200 hover:text-white inline-flex items-center gap-1"
               title="Open a GitHub issue with feedback or a bug report"
             >
               Feedback
@@ -200,6 +201,8 @@ export function App() {
             />
           </div>
         )}
+
+        <ResultsSummary results={results} />
 
         <SettingsPanel settings={settings} onChange={setSettings} />
 

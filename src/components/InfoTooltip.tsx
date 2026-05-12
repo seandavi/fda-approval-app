@@ -18,7 +18,7 @@ export function InfoTooltip({ text, side = "top" }: Props) {
         type="button"
         aria-describedby={id}
         tabIndex={0}
-        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-200 text-[10px] font-semibold text-slate-600 hover:bg-sky-100 hover:text-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-400"
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-200 text-[10px] font-semibold text-slate-600 hover:bg-violet-100 hover:text-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-400"
       >
         i
       </button>

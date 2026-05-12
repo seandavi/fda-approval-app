@@ -10,7 +10,7 @@ export function ProgressBar({ completed, total }: Props) {
     <div className="flex items-center gap-3">
       <div className="flex-1 h-2 rounded-full bg-slate-200 overflow-hidden">
         <div
-          className="h-full bg-sky-500 transition-all"
+          className="h-full bg-violet-500 transition-all"
           style={{ width: `${pct}%` }}
         />
       </div>
