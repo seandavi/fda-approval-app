@@ -13,7 +13,7 @@ export function ResultRow({ result, defaultExpanded }: Props) {
 
   const statusBorder: Record<string, string> = {
     approved: "border-l-emerald-500",
-    otc_monograph: "border-l-teal-500",
+    otc_monograph: "border-l-sky-500",
     unapproved_marketed: "border-l-orange-500",
     discontinued: "border-l-amber-500",
     not_found: "border-l-rose-400",

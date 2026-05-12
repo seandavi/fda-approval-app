@@ -9,7 +9,7 @@ interface Stat {
 
 const STATS: Stat[] = [
   { label: "Approved",            status: "approved",            dotColor: "bg-emerald-500", text: "text-emerald-700" },
-  { label: "OTC Monograph",       status: "otc_monograph",       dotColor: "bg-teal-500",    text: "text-teal-700"    },
+  { label: "OTC Monograph",       status: "otc_monograph",       dotColor: "bg-sky-500",     text: "text-sky-700"     },
   { label: "Marketed (Unapproved)", status: "unapproved_marketed", dotColor: "bg-orange-500", text: "text-orange-700"  },
   { label: "Discontinued",        status: "discontinued",        dotColor: "bg-amber-500",   text: "text-amber-700"   },
   { label: "Not Found",           status: "not_found",           dotColor: "bg-rose-500",    text: "text-rose-700"    },

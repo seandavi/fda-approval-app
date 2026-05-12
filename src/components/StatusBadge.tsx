@@ -2,7 +2,7 @@ import type { ApprovalStatus } from "../types";
 
 const STYLES: Record<ApprovalStatus, string> = {
   approved: "bg-emerald-100 text-emerald-800 ring-emerald-600/20",
-  otc_monograph: "bg-teal-100 text-teal-800 ring-teal-600/20",
+  otc_monograph: "bg-sky-100 text-sky-800 ring-sky-600/20",
   unapproved_marketed: "bg-orange-100 text-orange-800 ring-orange-600/20",
   discontinued: "bg-amber-100 text-amber-800 ring-amber-600/20",
   not_found: "bg-rose-100 text-rose-800 ring-rose-600/20",
