@@ -35,6 +35,7 @@ interface DrugsFdaResult {
     brand_name?: string[];
     generic_name?: string[];
     application_number?: string[];
+    substance_name?: string[];
   };
 }
 
@@ -90,10 +91,32 @@ function buildDrugsFdaUrl(
   return `${OPENFDA_BASE}/drug/drugsfda.json?${params.toString()}`;
 }
 
+// openFDA's brand_name/generic_name indexes are token-based: a query for
+// "aspirin" matches every combination product whose name contains the
+// token. Without this filter, "aspirin" resolves to ASPIRIN AND
+// EXTENDED-RELEASE DIPYRIDAMOLE (Aggrenox), which is misleading. We only
+// accept a result if it's a single-ingredient product whose ingredient
+// matches the query (#6).
+function isStrongDrugsFdaMatch(query: string, r: DrugsFdaResult): boolean {
+  const q = query.toLowerCase();
+  const substances = (r.openfda?.substance_name ?? []).map((s) => s.toLowerCase());
+  if (substances.length === 1 && substances[0] === q) return true;
+  // Fall back to exact brand_name / generic_name match — some entries don't
+  // populate substance_name but have a clean name field.
+  const brands = (r.openfda?.brand_name ?? []).map((s) => s.toLowerCase());
+  const generics = (r.openfda?.generic_name ?? []).map((s) => s.toLowerCase());
+  if (substances.length <= 1 && (brands.includes(q) || generics.includes(q)))
+    return true;
+  return false;
+}
+
 function interpretDrugsFda(
+  query: string,
   results: DrugsFdaResult[]
 ): Omit<OpenFdaPartial, "sources" | "resolvedVia"> {
   for (const r of results) {
+    if (!isStrongDrugsFdaMatch(query, r)) continue;
+
     const approvals = (r.submissions ?? []).filter(
       (s) => s.submission_status === "AP"
     );
@@ -147,7 +170,7 @@ async function queryDrugsFda(
         sources.push({ api, url: redact(url), hit: false, detail: "empty results" });
         continue;
       }
-      const interp = interpretDrugsFda(results);
+      const interp = interpretDrugsFda(name, results);
       if (interp.status) {
         sources.push({
           api,

@@ -42,7 +42,7 @@ const PIPELINE: LayerStep[] = [
   {
     n: 1,
     title: "openFDA /drug/drugsfda",
-    detail: "Search by exact brand_name, then exact generic_name, then wildcard. On any submission with submission_status='AP', record the application number and approval date. If all products are marked Discontinued, set status accordingly.",
+    detail: "Search by brand_name, then generic_name, then wildcard. We accept a result only when its substance list is single-ingredient and the substance/brand/generic matches the query — this avoids returning combination products (e.g. aspirin → Aggrenox). On any submission with submission_status='AP', record the application number and approval date. If all products are marked Discontinued, set status accordingly.",
   },
   {
     n: 2,
@@ -51,18 +51,23 @@ const PIPELINE: LayerStep[] = [
   },
   {
     n: 3,
+    title: "openFDA /drug/ndc",
+    detail: "The National Drug Code directory covers products outside the NDA/BLA/ANDA path. Filtered to single-ingredient exact matches, we read marketing_category: OTC MONOGRAPH * → otc_monograph status, UNAPPROVED * → unapproved_marketed. This is how aspirin, acetaminophen, and similar pharmacy-shelf drugs get correct structured answers instead of misleading combination-product matches.",
+  },
+  {
+    n: 4,
     title: "RxNorm",
     detail: "Resolve the input to an RxCUI, then query the FDA_APPLICATION_NUMBER property. If the value is prefixed NDA/BLA/ANDA, we have a hit.",
   },
   {
-    n: 4,
+    n: 5,
     title: "ChEMBL",
-    detail: "ID-to-INN translation when the FDA layers miss (e.g. internal codes like MEDI4736, AZD9291). We match against molecule_synonyms with syn_type='INN', then re-run layers 1-3 with the resolved INN.",
+    detail: "ID-to-INN translation when the earlier layers miss (e.g. internal codes like MEDI4736, AZD9291). We match against molecule_synonyms with syn_type='INN', then re-run layers 1-4 with the resolved INN.",
   },
   {
-    n: 5,
+    n: 6,
     title: "ClinicalTrials.gov v2",
-    detail: "Last resort. We scan top study results for interventions whose canonical name contains the query, then pick an INN-shaped otherName as the translated name and re-run layers 1-3.",
+    detail: "Last resort. We scan top study results for interventions whose canonical name contains the query, then pick an INN-shaped otherName as the translated name and re-run layers 1-4.",
   },
 ];
 
@@ -96,7 +101,7 @@ export function AboutPage() {
 
       <Section title="Data flow">
         <p>
-          Each name is run through a five-layer pipeline. The pipeline
+          Each name is run through a six-layer pipeline. The pipeline
           short-circuits as soon as an approved or discontinued record is
           confirmed, but every API call is recorded as a SourceHit so you can
           audit exactly how a result was reached (click the ▸ on any row).

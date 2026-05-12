@@ -13,6 +13,8 @@ export function ResultRow({ result, defaultExpanded }: Props) {
 
   const statusBorder: Record<string, string> = {
     approved: "border-l-emerald-500",
+    otc_monograph: "border-l-teal-500",
+    unapproved_marketed: "border-l-orange-500",
     discontinued: "border-l-amber-500",
     not_found: "border-l-rose-400",
     pending: "border-l-violet-400",
@@ -80,6 +82,11 @@ export function ResultRow({ result, defaultExpanded }: Props) {
                 {result.approvalDate && (
                   <>
                     {" "}· Approval date: <code>{result.approvalDate}</code>
+                  </>
+                )}
+                {result.marketingCategory && (
+                  <>
+                    {" "}· Marketing: <code>{result.marketingCategory}</code>
                   </>
                 )}
               </div>

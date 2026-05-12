@@ -8,6 +8,7 @@ import {
 } from "./normalize";
 import { queryChembl } from "./api/chembl";
 import { queryClinicalTrials } from "./api/clinicaltrials";
+import { queryOpenFdaNdc, type NdcPartial } from "./api/ndc";
 import {
   queryOpenFdaDrugsFda,
   queryOpenFdaLabel,
@@ -22,14 +23,24 @@ export interface LookupOptions {
   useCache: boolean;
 }
 
-function emitLayerHit(layer: 1 | 2 | 3 | 4 | 5, normalized: string): void {
+// Layer numbering (also reflected in About > Data flow):
+//   1 = openFDA drugsfda
+//   2 = openFDA label
+//   3 = openFDA ndc (OTC monograph + unapproved-marketed coverage)
+//   4 = RxNorm
+//   5 = ChEMBL (ID-to-INN translation)
+//   6 = ClinicalTrials.gov (ID-to-INN translation, last resort)
+function emitLayerHit(
+  layer: 1 | 2 | 3 | 4 | 5 | 6,
+  normalized: string
+): void {
   trackEvent("layer_hit", {
     layer,
     drug_name_hash: hashName(normalized),
   });
 }
 
-async function runOpenFdaLayers(
+async function runOpenFdaApprovalLayers(
   name: string,
   apiKey: string,
   sources: SourceHit[]
@@ -45,6 +56,17 @@ async function runOpenFdaLayers(
     return { approved: label, layerHit: 2 };
   }
   return { approved: null };
+}
+
+async function runNdc(
+  name: string,
+  apiKey: string,
+  sources: SourceHit[]
+): Promise<NdcPartial | null> {
+  const ndc = await queryOpenFdaNdc(name, apiKey);
+  sources.push(...ndc.sources);
+  if (ndc.status) return ndc;
+  return null;
 }
 
 async function runRxNorm(
@@ -77,15 +99,37 @@ function applyOpenFda(result: DrugResult, partial: OpenFdaPartial): void {
   if (partial.sponsor) result.sponsor = partial.sponsor;
 }
 
+function applyNdc(result: DrugResult, partial: NdcPartial): void {
+  if (partial.status) result.status = partial.status;
+  if (partial.resolvedVia) result.resolvedVia = partial.resolvedVia;
+  if (partial.brandName) result.brandName = partial.brandName;
+  if (partial.genericName) result.genericName = partial.genericName;
+  if (partial.sponsor) result.sponsor = partial.sponsor;
+  if (partial.marketingCategory)
+    result.marketingCategory = partial.marketingCategory;
+}
+
 async function tryNameChain(
   result: DrugResult,
   queryName: string,
   apiKey: string
 ): Promise<boolean> {
-  const openfda = await runOpenFdaLayers(queryName, apiKey, result.sources);
+  const openfda = await runOpenFdaApprovalLayers(
+    queryName,
+    apiKey,
+    result.sources
+  );
   if (openfda.approved) {
     applyOpenFda(result, openfda.approved);
     if (openfda.layerHit) emitLayerHit(openfda.layerHit, result.normalizedName);
+    return true;
+  }
+  // NDC fills the OTC monograph / unapproved-marketed gap that drugsfda
+  // doesn't cover (aspirin, acetaminophen, ibuprofen — see #6, #7).
+  const ndc = await runNdc(queryName, apiKey, result.sources);
+  if (ndc) {
+    applyNdc(result, ndc);
+    emitLayerHit(3, result.normalizedName);
     return true;
   }
   const rx = await runRxNorm(queryName, result.sources);
@@ -94,7 +138,7 @@ async function tryNameChain(
     result.applicationNumber = rx.applicationNumber;
     result.applicationType = rx.applicationType;
     result.resolvedVia = "rxnorm";
-    emitLayerHit(3, result.normalizedName);
+    emitLayerHit(4, result.normalizedName);
     return true;
   }
   return false;
@@ -149,7 +193,7 @@ export async function lookupDrug(
       result.sources.push(...chembl.sources);
       if (chembl.resolvedINN) {
         result.resolvedINN = chembl.resolvedINN;
-        emitLayerHit(4, result.normalizedName);
+        emitLayerHit(5, result.normalizedName);
         if (await tryNameChain(result, chembl.resolvedINN, opts.apiKey)) {
           if (!result.resolvedVia) result.resolvedVia = "chembl";
           resolved = true;
@@ -162,7 +206,7 @@ export async function lookupDrug(
       result.sources.push(...ct.sources);
       if (ct.resolvedINN && ct.resolvedINN !== result.resolvedINN) {
         result.resolvedINN = ct.resolvedINN;
-        emitLayerHit(5, result.normalizedName);
+        emitLayerHit(6, result.normalizedName);
         if (await tryNameChain(result, ct.resolvedINN, opts.apiKey)) {
           if (!result.resolvedVia) result.resolvedVia = "clinicaltrials";
           resolved = true;
