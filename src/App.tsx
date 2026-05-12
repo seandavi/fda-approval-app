@@ -126,7 +126,7 @@ export function App() {
               FDA Drug Approval Lookup
             </h1>
             <p className="text-xs text-slate-500">
-              Layered resolution across openFDA, RxNorm, NCI Thesaurus, and
+              Layered resolution across openFDA, RxNorm, ChEMBL, and
               ClinicalTrials.gov.
             </p>
           </div>
@@ -161,7 +161,7 @@ export function App() {
         />
 
         <footer className="text-center text-xs text-slate-400 pt-4 pb-8">
-          Data sources: openFDA, RxNav (NLM), NCI Thesaurus EVS,
+          Data sources: openFDA, RxNav (NLM), ChEMBL (EMBL-EBI),
           ClinicalTrials.gov. Not medical advice.
         </footer>
       </main>

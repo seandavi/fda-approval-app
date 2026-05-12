@@ -6,8 +6,8 @@ import {
   normalizeName,
   stripPharmaSuffixes,
 } from "./normalize";
+import { queryChembl } from "./api/chembl";
 import { queryClinicalTrials } from "./api/clinicaltrials";
-import { queryNci } from "./api/nci";
 import {
   queryOpenFdaDrugsFda,
   queryOpenFdaLabel,
@@ -145,13 +145,13 @@ export async function lookupDrug(
     }
 
     if (!resolved) {
-      const nci = await queryNci(normalized);
-      result.sources.push(...nci.sources);
-      if (nci.resolvedINN) {
-        result.resolvedINN = nci.resolvedINN;
+      const chembl = await queryChembl(normalized);
+      result.sources.push(...chembl.sources);
+      if (chembl.resolvedINN) {
+        result.resolvedINN = chembl.resolvedINN;
         emitLayerHit(4, result.normalizedName);
-        if (await tryNameChain(result, nci.resolvedINN, opts.apiKey)) {
-          if (!result.resolvedVia) result.resolvedVia = "nci";
+        if (await tryNameChain(result, chembl.resolvedINN, opts.apiKey)) {
+          if (!result.resolvedVia) result.resolvedVia = "chembl";
           resolved = true;
         }
       }

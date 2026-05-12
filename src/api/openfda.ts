@@ -69,6 +69,12 @@ async function fetchWithBackoff(url: string): Promise<Response> {
   return r;
 }
 
+// Keep the real URL for fetching, but never store the api_key in SourceHit
+// records — they're rendered to the UI and exported to CSV.
+function redact(url: string): string {
+  return url.replace(/([?&]api_key=)[^&]*/i, "$1REDACTED");
+}
+
 function buildDrugsFdaUrl(
   field: "brand_name" | "generic_name",
   name: string,
@@ -128,24 +134,24 @@ async function queryDrugsFda(
     try {
       const r = await fetchWithBackoff(url);
       if (r.status === 404) {
-        sources.push({ api, url, hit: false, detail: "no results" });
+        sources.push({ api, url: redact(url), hit: false, detail: "no results" });
         continue;
       }
       if (!r.ok) {
-        sources.push({ api, url, hit: false, detail: `HTTP ${r.status}` });
+        sources.push({ api, url: redact(url), hit: false, detail: `HTTP ${r.status}` });
         continue;
       }
       const body = (await r.json()) as { results?: DrugsFdaResult[] };
       const results = body.results ?? [];
       if (results.length === 0) {
-        sources.push({ api, url, hit: false, detail: "empty results" });
+        sources.push({ api, url: redact(url), hit: false, detail: "empty results" });
         continue;
       }
       const interp = interpretDrugsFda(results);
       if (interp.status) {
         sources.push({
           api,
-          url,
+          url: redact(url),
           hit: true,
           detail: `${interp.status} ${interp.applicationNumber ?? ""}`.trim(),
         });
@@ -155,11 +161,11 @@ async function queryDrugsFda(
           sources,
         };
       }
-      sources.push({ api, url, hit: false, detail: "no AP submission" });
+      sources.push({ api, url: redact(url), hit: false, detail: "no AP submission" });
     } catch (e) {
       sources.push({
         api,
-        url,
+        url: redact(url),
         hit: false,
         detail: e instanceof Error ? e.message : "fetch failed",
       });
@@ -197,11 +203,11 @@ export async function queryOpenFdaLabel(
   try {
     const r = await fetchWithBackoff(url);
     if (r.status === 404) {
-      sources.push({ api, url, hit: false, detail: "no results" });
+      sources.push({ api, url: redact(url), hit: false, detail: "no results" });
       return { sources };
     }
     if (!r.ok) {
-      sources.push({ api, url, hit: false, detail: `HTTP ${r.status}` });
+      sources.push({ api, url: redact(url), hit: false, detail: `HTTP ${r.status}` });
       return { sources };
     }
     const body = (await r.json()) as { results?: LabelResult[] };
@@ -215,7 +221,7 @@ export async function queryOpenFdaLabel(
       if (type && (cat === "NDA" || cat === "BLA")) {
         sources.push({
           api,
-          url,
+          url: redact(url),
           hit: true,
           detail: `${cat} ${appNum}`,
         });
@@ -232,14 +238,14 @@ export async function queryOpenFdaLabel(
     }
     sources.push({
       api,
-      url,
+      url: redact(url),
       hit: false,
       detail: results.length === 0 ? "empty" : "no NDA/BLA label",
     });
   } catch (e) {
     sources.push({
       api,
-      url,
+      url: redact(url),
       hit: false,
       detail: e instanceof Error ? e.message : "fetch failed",
     });

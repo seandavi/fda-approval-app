@@ -44,16 +44,22 @@ export async function queryClinicalTrials(name: string): Promise<CtPartial> {
       return { sources };
     }
     const body = (await r.json()) as StudiesResponse;
+    const lowerName = name.toLowerCase();
     const candidates = new Set<string>();
+
+    // Only collect otherNames from interventions whose canonical name
+    // contains the queried ID. This avoids picking co-administered drugs
+    // from combination trials (e.g. pembro + cyclophosphamide → "Cytoxan").
     for (const study of body.studies ?? []) {
       const interventions =
         study.protocolSection?.armsInterventionsModule?.interventions ?? [];
       for (const iv of interventions) {
+        const ivName = (iv.name ?? "").toLowerCase();
+        if (!ivName.includes(lowerName)) continue;
         for (const n of iv.otherNames ?? []) candidates.add(n);
-        if (iv.name) candidates.add(iv.name);
       }
     }
-    const lowerName = name.toLowerCase();
+
     for (const cand of candidates) {
       if (cand.toLowerCase() === lowerName) continue;
       if (looksLikeINN(cand)) {

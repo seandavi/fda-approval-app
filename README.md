@@ -1,7 +1,7 @@
 # FDA Drug Approval Lookup
 
 Single-page React + TypeScript + Vite app that resolves drug names against
-openFDA, RxNorm, NCI Thesaurus, and ClinicalTrials.gov to determine FDA
+openFDA, RxNorm, ChEMBL, and ClinicalTrials.gov to determine FDA
 approval status. See `fda-lookup-spec.md` for the full spec.
 
 ## Local development
@@ -53,7 +53,7 @@ deploy only to Cloudflare. Build command `npm run build`, output directory
 src/
   api/openfda.ts        layers 1 (drugsfda) and 2 (label)
   api/rxnorm.ts         layer 3
-  api/nci.ts            layer 4
+  api/chembl.ts         layer 4
   api/clinicaltrials.ts layer 5
   lookup.ts             orchestrates the pipeline with short-circuit
   cache.ts              localStorage result cache (7d default TTL)

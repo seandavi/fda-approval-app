@@ -10,7 +10,7 @@ export type ResolvedVia =
   | "openfda_generic"
   | "openfda_label"
   | "rxnorm"
-  | "nci"
+  | "chembl"
   | "clinicaltrials";
 
 export interface SourceHit {
