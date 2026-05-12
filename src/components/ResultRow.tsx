@@ -1,0 +1,116 @@
+import { useState } from "react";
+import type { DrugResult } from "../types";
+import { StatusBadge } from "./StatusBadge";
+
+interface Props {
+  result: DrugResult;
+  defaultExpanded: boolean;
+}
+
+export function ResultRow({ result, defaultExpanded }: Props) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  return (
+    <>
+      <tr className="border-t border-slate-200 hover:bg-slate-50">
+        <td className="px-3 py-2 align-top">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="text-slate-400 hover:text-slate-700"
+            aria-label={expanded ? "Collapse" : "Expand"}
+          >
+            {expanded ? "▾" : "▸"}
+          </button>
+        </td>
+        <td className="px-3 py-2 align-top">
+          <div className="font-medium text-slate-900">{result.inputName}</div>
+          {result.cached && (
+            <span className="text-[10px] uppercase tracking-wide text-slate-500 bg-slate-100 px-1 rounded">
+              cached
+            </span>
+          )}
+        </td>
+        <td className="px-3 py-2 align-top text-slate-700">
+          {result.resolvedINN ?? result.genericName ?? "—"}
+        </td>
+        <td className="px-3 py-2 align-top">
+          {result.status === "pending" ? (
+            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-sky-500 border-r-transparent" />
+          ) : (
+            <StatusBadge status={result.status} />
+          )}
+        </td>
+        <td className="px-3 py-2 align-top text-slate-700 font-mono text-xs">
+          {result.applicationNumber ?? "—"}
+        </td>
+        <td className="px-3 py-2 align-top text-slate-700">
+          {result.applicationType ?? "—"}
+        </td>
+        <td className="px-3 py-2 align-top text-slate-700">
+          {result.brandName ?? "—"}
+        </td>
+        <td className="px-3 py-2 align-top text-slate-700">
+          {result.sponsor ?? "—"}
+        </td>
+        <td className="px-3 py-2 align-top text-slate-500 text-xs">
+          {result.resolvedVia ?? "—"}
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="border-t border-slate-100 bg-slate-50">
+          <td colSpan={9} className="px-3 py-3">
+            <div className="text-xs text-slate-600 mb-2">
+              Looked up {new Date(result.lookedUpAt).toLocaleString()} · Normalized:{" "}
+              <code className="bg-white px-1 rounded">{result.normalizedName}</code>
+              {result.approvalDate && (
+                <>
+                  {" "}· Approval date: <code>{result.approvalDate}</code>
+                </>
+              )}
+            </div>
+            <table className="w-full text-xs">
+              <thead className="text-left text-slate-500">
+                <tr>
+                  <th className="py-1 pr-3 font-medium">API</th>
+                  <th className="py-1 pr-3 font-medium">Hit</th>
+                  <th className="py-1 pr-3 font-medium">Detail</th>
+                  <th className="py-1 font-medium">URL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.sources.map((s, i) => (
+                  <tr key={i} className="border-t border-slate-200">
+                    <td className="py-1 pr-3 font-mono">{s.api}</td>
+                    <td className="py-1 pr-3">
+                      {s.hit ? (
+                        <span className="text-emerald-700">✓</span>
+                      ) : (
+                        <span className="text-slate-400">·</span>
+                      )}
+                    </td>
+                    <td className="py-1 pr-3 text-slate-700">{s.detail ?? ""}</td>
+                    <td className="py-1 text-slate-500 break-all">
+                      {s.url ? (
+                        <a
+                          href={s.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="hover:text-sky-600"
+                        >
+                          {s.url}
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
