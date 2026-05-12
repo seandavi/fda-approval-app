@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>FDA Drug Approval Lookup</title>
+  <defs>
+    <clipPath id="pill">
+      <rect x="3" y="9" width="26" height="14" rx="7"/>
+    </clipPath>
+  </defs>
+  <g transform="rotate(-32 16 16)" clip-path="url(#pill)">
+    <rect x="3" y="9" width="13" height="14" fill="#0ea5e9"/>
+    <rect x="16" y="9" width="13" height="14" fill="#1e293b"/>
+    <line x1="16" y1="9" x2="16" y2="23" stroke="#ffffff" stroke-width="0.8" opacity="0.45"/>
+  </g>
+  <g transform="rotate(-32 16 16)" fill="none" stroke="#0c4a6e" stroke-width="0.6" opacity="0.45">
+    <rect x="3" y="9" width="26" height="14" rx="7"/>
+  </g>
+</svg>
