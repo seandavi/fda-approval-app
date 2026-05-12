@@ -253,7 +253,16 @@ export function App() {
       )}
 
       <footer className="text-center text-xs text-slate-400 py-3 border-t border-slate-200 bg-white flex-shrink-0">
-        Data sources: openFDA, RxNav (NLM), ChEMBL (EMBL-EBI),
+        Built by{" "}
+        <a
+          href="https://github.com/seandavi"
+          target="_blank"
+          rel="noreferrer"
+          className="hover:text-slate-600 hover:underline underline-offset-2"
+        >
+          Sean Davis
+        </a>{" "}
+        · Data sources: openFDA, RxNav (NLM), ChEMBL (EMBL-EBI),
         ClinicalTrials.gov. Not medical advice.
       </footer>
     </div>
