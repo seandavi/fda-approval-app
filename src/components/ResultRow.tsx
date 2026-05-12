@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { reportResultUrl } from "../feedback";
 import type { DrugResult } from "../types";
 import { StatusBadge } from "./StatusBadge";
 
@@ -60,13 +61,27 @@ export function ResultRow({ result, defaultExpanded }: Props) {
       {expanded && (
         <tr className="border-t border-slate-100 bg-slate-50">
           <td colSpan={9} className="px-3 py-3">
-            <div className="text-xs text-slate-600 mb-2">
-              Looked up {new Date(result.lookedUpAt).toLocaleString()} · Normalized:{" "}
-              <code className="bg-white px-1 rounded">{result.normalizedName}</code>
-              {result.approvalDate && (
-                <>
-                  {" "}· Approval date: <code>{result.approvalDate}</code>
-                </>
+            <div className="flex items-baseline justify-between gap-3 mb-2">
+              <div className="text-xs text-slate-600">
+                Looked up {new Date(result.lookedUpAt).toLocaleString()} · Normalized:{" "}
+                <code className="bg-white px-1 rounded">{result.normalizedName}</code>
+                {result.approvalDate && (
+                  <>
+                    {" "}· Approval date: <code>{result.approvalDate}</code>
+                  </>
+                )}
+              </div>
+              {result.status !== "pending" && (
+                <a
+                  href={reportResultUrl(result)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-shrink-0 text-xs text-slate-500 hover:text-sky-700 inline-flex items-center gap-1"
+                  title="Open a pre-filled GitHub issue about this result"
+                >
+                  Report
+                  <span aria-hidden="true" className="text-[10px]">↗</span>
+                </a>
               )}
             </div>
             <table className="w-full text-xs">

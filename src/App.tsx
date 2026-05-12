@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { trackEvent } from "./analytics";
 import { AboutPage } from "./components/AboutPage";
 import { InputPanel, type InputMode } from "./components/InputPanel";
+import { genericFeedbackUrl } from "./feedback";
 import { ProgressBar } from "./components/ProgressBar";
 import { ResultsTable } from "./components/ResultsTable";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -138,30 +139,42 @@ export function App() {
               ClinicalTrials.gov.
             </p>
           </div>
-          <nav className="inline-flex rounded-md bg-slate-100 p-0.5 text-xs">
-            <button
-              type="button"
-              onClick={() => setView("lookup")}
-              className={`px-3 py-1.5 rounded ${
-                view === "lookup"
-                  ? "bg-white shadow-sm font-medium text-slate-900"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
+          <div className="flex items-center gap-4">
+            <nav className="inline-flex rounded-md bg-slate-100 p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setView("lookup")}
+                className={`px-3 py-1.5 rounded ${
+                  view === "lookup"
+                    ? "bg-white shadow-sm font-medium text-slate-900"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Lookup
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("about")}
+                className={`px-3 py-1.5 rounded ${
+                  view === "about"
+                    ? "bg-white shadow-sm font-medium text-slate-900"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                About
+              </button>
+            </nav>
+            <a
+              href={genericFeedbackUrl()}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-slate-600 hover:text-sky-700 inline-flex items-center gap-1"
+              title="Open a GitHub issue with feedback or a bug report"
             >
-              Lookup
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("about")}
-              className={`px-3 py-1.5 rounded ${
-                view === "about"
-                  ? "bg-white shadow-sm font-medium text-slate-900"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              About
-            </button>
-          </nav>
+              Feedback
+              <span aria-hidden="true" className="text-[10px]">↗</span>
+            </a>
+          </div>
         </div>
       </header>
 
