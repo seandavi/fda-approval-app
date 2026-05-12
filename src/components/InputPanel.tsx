@@ -10,6 +10,7 @@ interface Props {
   onChange: (v: string) => void;
   onSubmit: () => void;
   disabled: boolean;
+  batchLimit: number;
 }
 
 export function InputPanel({
@@ -19,9 +20,11 @@ export function InputPanel({
   onChange,
   onSubmit,
   disabled,
+  batchLimit,
 }: Props) {
   const parsed = useMemo(() => parseBatchInput(value), [value]);
   const count = mode === "single" ? (value.trim() ? 1 : 0) : parsed.length;
+  const overLimit = count > batchLimit;
 
   return (
     <section className="bg-white rounded-lg shadow-sm ring-1 ring-slate-200 p-4">
@@ -77,15 +80,21 @@ export function InputPanel({
       )}
 
       <div className="mt-3 flex items-center justify-between">
-        <span className="text-xs text-slate-500">
+        <span
+          className={`text-xs ${
+            overLimit ? "text-rose-700 font-medium" : "text-slate-500"
+          }`}
+        >
           {count === 0
             ? "Nothing to look up yet"
-            : `${count} ${count === 1 ? "name" : "names"} ready`}
+            : overLimit
+              ? `${count} names — max ${batchLimit} per batch`
+              : `${count} ${count === 1 ? "name" : "names"} ready`}
         </span>
         <button
           type="button"
           onClick={onSubmit}
-          disabled={disabled || count === 0}
+          disabled={disabled || count === 0 || overLimit}
           className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
           {disabled ? "Looking up…" : "Lookup"}

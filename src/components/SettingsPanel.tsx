@@ -2,6 +2,7 @@ import { useState } from "react";
 import { trackEvent } from "../analytics";
 import { clearCache } from "../cache";
 import type { AppSettings } from "../types";
+import { InfoTooltip } from "./InfoTooltip";
 
 interface Props {
   settings: AppSettings;
@@ -42,6 +43,10 @@ export function SettingsPanel({ settings, onChange }: Props) {
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">
               openFDA API key
+              <InfoTooltip
+                side="bottom"
+                text="Optional. Without a key, openFDA limits unauthenticated traffic to 240 requests/min per IP. Get one (free) at open.fda.gov/apis/authentication."
+              />
             </label>
             <input
               type="text"
@@ -73,6 +78,10 @@ export function SettingsPanel({ settings, onChange }: Props) {
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">
               Cache TTL (days)
+              <InfoTooltip
+                side="bottom"
+                text="Resolved drug results are stored in your browser's localStorage. Cached entries older than this many days are re-fetched. Set to 0 to disable caching."
+              />
             </label>
             <input
               type="number"

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { trackEvent } from "./analytics";
-import { ExportButton } from "./components/ExportButton";
 import { InputPanel, type InputMode } from "./components/InputPanel";
 import { ProgressBar } from "./components/ProgressBar";
 import { ResultsTable } from "./components/ResultsTable";
@@ -10,6 +9,11 @@ import { parseBatchInput } from "./normalize";
 import type { AppSettings, DrugResult } from "./types";
 
 const SETTINGS_KEY = "fda_lookup_settings_v1";
+
+const BATCH_LIMIT = (() => {
+  const raw = Number(import.meta.env.VITE_BATCH_LIMIT);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 100;
+})();
 
 function defaultSettings(): AppSettings {
   return {
@@ -62,6 +66,7 @@ export function App() {
 
   const handleSubmit = useCallback(async () => {
     if (parsedNames.length === 0 || running) return;
+    if (parsedNames.length > BATCH_LIMIT) return;
     setRunning(true);
 
     const placeholders: DrugResult[] = parsedNames.map((name) => ({
@@ -120,17 +125,14 @@ export function App() {
   return (
     <div className="min-h-screen">
       <header className="bg-white border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold text-slate-900">
-              FDA Drug Approval Lookup
-            </h1>
-            <p className="text-xs text-slate-500">
-              Layered resolution across openFDA, RxNorm, ChEMBL, and
-              ClinicalTrials.gov.
-            </p>
-          </div>
-          <ExportButton results={results.filter((r) => r.status !== "pending")} />
+        <div className="max-w-6xl mx-auto px-4 py-4">
+          <h1 className="text-lg font-semibold text-slate-900">
+            FDA Drug Approval Lookup
+          </h1>
+          <p className="text-xs text-slate-500">
+            Layered resolution across openFDA, RxNorm, ChEMBL, and
+            ClinicalTrials.gov.
+          </p>
         </div>
       </header>
 
@@ -142,6 +144,7 @@ export function App() {
           onChange={setInputValue}
           onSubmit={handleSubmit}
           disabled={running}
+          batchLimit={BATCH_LIMIT}
         />
 
         {progress.total > 0 && (

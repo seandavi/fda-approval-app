@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import type { ApprovalStatus, DrugResult } from "../types";
+import { ExportButton } from "./ExportButton";
+import { InfoTooltip } from "./InfoTooltip";
 import { ResultRow } from "./ResultRow";
 
 type SortKey =
@@ -19,15 +21,35 @@ interface Props {
   defaultExpandSources: boolean;
 }
 
-const HEADERS: Array<{ key: SortKey; label: string }> = [
+const HEADERS: Array<{ key: SortKey; label: string; tooltip?: string }> = [
   { key: "inputName", label: "Input" },
-  { key: "resolvedINN", label: "Resolved As" },
-  { key: "status", label: "Status" },
-  { key: "applicationNumber", label: "App #" },
+  {
+    key: "resolvedINN",
+    label: "Resolved As",
+    tooltip:
+      "The canonical name we resolved your input to. For brand names this is the generic name; for internal codes like MK-3475 this is the INN found via ChEMBL or ClinicalTrials.gov.",
+  },
+  {
+    key: "status",
+    label: "Status",
+    tooltip:
+      "approved = active FDA NDA/BLA/ANDA. discontinued = approved record, but all products discontinued. not_found = no FDA record after all layers. error = network/parse failure.",
+  },
+  {
+    key: "applicationNumber",
+    label: "App #",
+    tooltip:
+      "FDA application number. NDA = New Drug Application (small molecule). BLA = Biologics License Application (biologic). ANDA = Abbreviated NDA (generic).",
+  },
   { key: "applicationType", label: "Type" },
   { key: "brandName", label: "Brand" },
   { key: "sponsor", label: "Sponsor" },
-  { key: "resolvedVia", label: "Source" },
+  {
+    key: "resolvedVia",
+    label: "Source",
+    tooltip:
+      "Which pipeline layer produced the approval record: openfda_brand/generic = direct FDA hit; rxnorm = NLM mapping; openfda_label = drug label fallback. chembl/clinicaltrials in this column means an ID translation happened first.",
+  },
 ];
 
 function cmp(a: string | undefined, b: string | undefined): number {
@@ -78,24 +100,29 @@ export function ResultsTable({ results, defaultExpandSources }: Props) {
 
   return (
     <section className="bg-white rounded-lg shadow-sm ring-1 ring-slate-200 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+      <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-slate-200">
         <h2 className="text-sm font-semibold text-slate-900">
           Results ({results.length})
         </h2>
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-slate-600">Filter:</label>
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value as StatusFilter)}
-            className="text-xs rounded ring-1 ring-inset ring-slate-300 px-2 py-1"
-          >
-            <option value="all">All</option>
-            <option value="approved">Approved</option>
-            <option value="discontinued">Discontinued</option>
-            <option value="not_found">Not Found</option>
-            <option value="error">Error</option>
-            <option value="pending">Pending</option>
-          </select>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate-600">Filter:</label>
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value as StatusFilter)}
+              className="text-xs rounded ring-1 ring-inset ring-slate-300 px-2 py-1"
+            >
+              <option value="all">All</option>
+              <option value="approved">Approved</option>
+              <option value="discontinued">Discontinued</option>
+              <option value="not_found">Not Found</option>
+              <option value="error">Error</option>
+              <option value="pending">Pending</option>
+            </select>
+          </div>
+          <ExportButton
+            results={results.filter((r) => r.status !== "pending")}
+          />
         </div>
       </div>
       <div className="overflow-x-auto">
@@ -106,21 +133,26 @@ export function ResultsTable({ results, defaultExpandSources }: Props) {
               {HEADERS.map((h) => (
                 <th
                   key={h.key}
-                  className="px-3 py-2 font-medium cursor-pointer select-none"
-                  onClick={() => {
-                    if (sortKey === h.key) setSortAsc((v) => !v);
-                    else {
-                      setSortKey(h.key);
-                      setSortAsc(true);
-                    }
-                  }}
+                  className="px-3 py-2 font-medium select-none whitespace-nowrap"
                 >
-                  {h.label}
-                  {sortKey === h.key && (
-                    <span className="ml-1 text-slate-400">
-                      {sortAsc ? "▲" : "▼"}
-                    </span>
-                  )}
+                  <span
+                    onClick={() => {
+                      if (sortKey === h.key) setSortAsc((v) => !v);
+                      else {
+                        setSortKey(h.key);
+                        setSortAsc(true);
+                      }
+                    }}
+                    className="cursor-pointer"
+                  >
+                    {h.label}
+                    {sortKey === h.key && (
+                      <span className="ml-1 text-slate-400">
+                        {sortAsc ? "▲" : "▼"}
+                      </span>
+                    )}
+                  </span>
+                  {h.tooltip && <InfoTooltip side="bottom" text={h.tooltip} />}
                 </th>
               ))}
             </tr>
