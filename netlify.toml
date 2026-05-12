@@ -1,0 +1,30 @@
+# Netlify build configuration.
+# Connect this repo at app.netlify.com → "Add new site" → "Import an existing
+# project" → GitHub → fda-approval-app. The settings below are picked up
+# automatically; you can leave the UI defaults blank.
+
+[build]
+  command   = "npm run build"
+  publish   = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# SPA-style routing: nothing else handles /lookup or /about, but if you add
+# client-side routes later this rewrite keeps deep links working.
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
+# Long-cache the hashed assets Vite emits; never cache index.html so users
+# always get the latest entrypoint pointing at the freshest hashed bundles.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"

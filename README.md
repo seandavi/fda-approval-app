@@ -59,24 +59,59 @@ npm run build       # → ./dist
 npm run preview     # local preview of the production build
 ```
 
-### GitHub Pages
+Vite's `base` path is controlled by `VITE_BASE_PATH` at build time:
 
-`vite.config.ts` sets `base: '/fda-drug-lookup/'` to match a GitHub Pages
-project path. Push to a repo named `fda-drug-lookup`, then:
+- Unset (default `/`) — for Netlify, Cloudflare Pages, or any custom domain.
+- `/<repo-name>/` — for GitHub Pages project pages.
 
-```sh
-npm run deploy
-```
+### Netlify (recommended)
 
-This builds and publishes `dist/` to the `gh-pages` branch via the `gh-pages`
-npm package. Change `base` in `vite.config.ts` if you deploy at a different
-path.
+1. Push the repo to GitHub.
+2. At [app.netlify.com](https://app.netlify.com), **Add new site → Import an
+   existing project → GitHub → fda-approval-app**.
+3. The `netlify.toml` in the repo picks up the build command, publish dir,
+   Node version, SPA redirect, and cache headers automatically. Skip the
+   advanced UI fields.
+4. **Site settings → Environment variables**: add
+   `VITE_OPENFDA_API_KEY` (and `VITE_GA_MEASUREMENT_ID` if you have one)
+   so the build picks them up.
+5. Deploy.
+
+You'll get a `*.netlify.app` URL plus a fresh preview deploy on every PR.
 
 ### Cloudflare Pages
 
-Cloudflare serves the build output from root. Set `base` in `vite.config.ts`
-to `'/'`, then point Cloudflare Pages at the repo with build command
-`npm run build` and output directory `dist`.
+Same flow as Netlify, but at [dash.cloudflare.com](https://dash.cloudflare.com)
+→ **Pages → Create a project → Connect to Git**. Build command
+`npm run build`, output directory `dist`, Node version `20`. Add the env
+vars in the Pages project settings.
+
+### GitHub Pages
+
+Subpath-only — the deployed site lives at `<user>.github.io/fda-approval-app/`.
+
+```sh
+npm run deploy:ghpages
+```
+
+This sets `VITE_BASE_PATH=/fda-drug-lookup/` for the build and publishes
+`dist/` to the `gh-pages` branch via the `gh-pages` npm package. Update the
+path segment in `package.json` if your repo name differs.
+
+### Custom domain (Netlify + Cloudflare DNS)
+
+1. **Netlify → Site settings → Domain management → Add custom domain**;
+   enter the subdomain (e.g. `fda.cancerdatasci.org`) and accept the
+   verification step.
+2. **Cloudflare DNS → Add record**: type `CNAME`, name `fda`, target
+   `<your-site>.netlify.app`, **Proxy status: DNS only** (gray cloud).
+   The "DNS only" toggle is important — Cloudflare proxy in front of
+   Netlify breaks Netlify's automatic Let's Encrypt provisioning. Wait
+   a few minutes; Netlify will detect the DNS record and issue a cert
+   automatically.
+3. Optional later: switch the record back to **Proxied** (orange cloud)
+   for Cloudflare's CDN. Cloudflare SSL mode must be **Full (strict)**
+   for that to work without warnings.
 
 ## Architecture
 
