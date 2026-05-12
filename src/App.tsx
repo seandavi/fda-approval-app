@@ -19,7 +19,6 @@ const BATCH_LIMIT = (() => {
 function defaultSettings(): AppSettings {
   return {
     openfdaApiKey: import.meta.env.VITE_OPENFDA_API_KEY ?? "",
-    gaMeasurementId: import.meta.env.VITE_GA_MEASUREMENT_ID ?? "",
     cacheTtlDays: 7,
     showSourcesByDefault: false,
   };

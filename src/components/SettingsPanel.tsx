@@ -60,23 +60,6 @@ export function SettingsPanel({ settings, onChange }: Props) {
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">
-              GA Measurement ID override
-            </label>
-            <input
-              type="text"
-              value={draft.gaMeasurementId}
-              onChange={(e) =>
-                setDraft({ ...draft, gaMeasurementId: e.target.value })
-              }
-              placeholder="G-XXXXXXXXXX"
-              className="w-full rounded-md ring-1 ring-inset ring-slate-300 px-3 py-1.5 font-mono text-xs"
-            />
-            <p className="text-[11px] text-slate-500 mt-1">
-              Requires page reload to take effect.
-            </p>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
               Cache TTL (days)
               <InfoTooltip
                 side="bottom"
