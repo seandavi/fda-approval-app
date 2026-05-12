@@ -97,10 +97,10 @@ export function InputPanel({
           }`}
         >
           {count === 0
-            ? "Nothing to look up yet"
+            ? `Nothing to look up yet · up to ${batchLimit} names per batch`
             : overLimit
               ? `${count} names — max ${batchLimit} per batch`
-              : `${count} ${count === 1 ? "name" : "names"} ready`}
+              : `${count} ${count === 1 ? "name" : "names"} ready · max ${batchLimit}`}
         </span>
         <div className="flex items-center gap-2">
           {count === 0 && !disabled && (

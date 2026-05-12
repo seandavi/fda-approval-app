@@ -3,6 +3,8 @@ import type { DrugResult } from "./types";
 const REPO =
   import.meta.env.VITE_GITHUB_REPO ?? "seandavi/fda-approval-app";
 
+export const repoUrl = `https://github.com/${REPO}`;
+
 interface IssueArgs {
   title: string;
   body: string;
