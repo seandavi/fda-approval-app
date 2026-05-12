@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { trackEvent } from "./analytics";
+import { AboutPage } from "./components/AboutPage";
 import { InputPanel, type InputMode } from "./components/InputPanel";
 import { ProgressBar } from "./components/ProgressBar";
 import { ResultsTable } from "./components/ResultsTable";
@@ -44,7 +45,10 @@ function saveSettings(s: AppSettings): void {
   }
 }
 
+type View = "lookup" | "about";
+
 export function App() {
+  const [view, setView] = useState<View>("lookup");
   const [mode, setMode] = useState<InputMode>("batch");
   const [inputValue, setInputValue] = useState("");
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
@@ -125,17 +129,46 @@ export function App() {
   return (
     <div className="min-h-screen">
       <header className="bg-white border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <h1 className="text-lg font-semibold text-slate-900">
-            FDA Drug Approval Lookup
-          </h1>
-          <p className="text-xs text-slate-500">
-            Layered resolution across openFDA, RxNorm, ChEMBL, and
-            ClinicalTrials.gov.
-          </p>
+        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-lg font-semibold text-slate-900">
+              FDA Drug Approval Lookup
+            </h1>
+            <p className="text-xs text-slate-500">
+              Layered resolution across openFDA, RxNorm, ChEMBL, and
+              ClinicalTrials.gov.
+            </p>
+          </div>
+          <nav className="inline-flex rounded-md bg-slate-100 p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setView("lookup")}
+              className={`px-3 py-1.5 rounded ${
+                view === "lookup"
+                  ? "bg-white shadow-sm font-medium text-slate-900"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Lookup
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("about")}
+              className={`px-3 py-1.5 rounded ${
+                view === "about"
+                  ? "bg-white shadow-sm font-medium text-slate-900"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              About
+            </button>
+          </nav>
         </div>
       </header>
 
+      {view === "about" ? (
+        <AboutPage />
+      ) : (
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-4">
         <InputPanel
           mode={mode}
@@ -168,6 +201,7 @@ export function App() {
           ClinicalTrials.gov. Not medical advice.
         </footer>
       </main>
+      )}
     </div>
   );
 }
