@@ -8,10 +8,12 @@ interface Stat {
 }
 
 const STATS: Stat[] = [
-  { label: "Approved",     status: "approved",     dotColor: "bg-emerald-500", text: "text-emerald-700" },
-  { label: "Discontinued", status: "discontinued", dotColor: "bg-amber-500",   text: "text-amber-700"   },
-  { label: "Not Found",    status: "not_found",    dotColor: "bg-rose-500",    text: "text-rose-700"    },
-  { label: "Errors",       status: "error",        dotColor: "bg-slate-500",   text: "text-slate-700"   },
+  { label: "Approved",            status: "approved",            dotColor: "bg-emerald-500", text: "text-emerald-700" },
+  { label: "OTC Monograph",       status: "otc_monograph",       dotColor: "bg-sky-500",     text: "text-sky-700"     },
+  { label: "Marketed (Unapproved)", status: "unapproved_marketed", dotColor: "bg-orange-500", text: "text-orange-700"  },
+  { label: "Discontinued",        status: "discontinued",        dotColor: "bg-amber-500",   text: "text-amber-700"   },
+  { label: "Not Found",           status: "not_found",           dotColor: "bg-rose-500",    text: "text-rose-700"    },
+  { label: "Errors",              status: "error",               dotColor: "bg-slate-500",   text: "text-slate-700"   },
 ];
 
 export function ResultsStrip({ results }: { results: DrugResult[] }) {
@@ -29,6 +31,7 @@ export function ResultsStrip({ results }: { results: DrugResult[] }) {
       <div className="h-4 w-px bg-slate-200" />
       {STATS.map((s) => {
         const count = results.filter((r) => r.status === s.status).length;
+        if (count === 0) return null;
         return (
           <div key={s.status} className="flex items-center gap-2">
             <span className={`h-2 w-2 rounded-full ${s.dotColor}`} />

@@ -33,7 +33,7 @@ const HEADERS: Array<{ key: SortKey; label: string; tooltip?: string }> = [
     key: "status",
     label: "Status",
     tooltip:
-      "approved = active FDA NDA/BLA/ANDA. discontinued = approved record, but all products discontinued. not_found = no FDA record after all layers. error = network/parse failure.",
+      "approved = active FDA NDA/BLA/ANDA. otc_monograph = legally marketed under FDA's OTC monograph (no application; e.g. aspirin, ibuprofen). unapproved_marketed = marketed without FDA approval (homeopathic, etc.). discontinued = approved record but all products discontinued. not_found = no FDA record after all layers. error = network/parse failure.",
   },
   {
     key: "applicationNumber",
@@ -48,7 +48,7 @@ const HEADERS: Array<{ key: SortKey; label: string; tooltip?: string }> = [
     key: "resolvedVia",
     label: "Source",
     tooltip:
-      "Which pipeline layer produced the approval record: openfda_brand/generic = direct FDA hit; rxnorm = NLM mapping; openfda_label = drug label fallback. chembl/clinicaltrials in this column means an ID translation happened first.",
+      "Which pipeline layer produced the result: openfda_brand/generic = direct drugsfda hit; openfda_label = drug label fallback; openfda_ndc = NDC directory hit (covers OTC monograph and unapproved-marketed paths); rxnorm = NLM mapping. chembl/clinicaltrials in this column means an ID translation happened first.",
   },
 ];
 
@@ -114,6 +114,8 @@ export function ResultsTable({ results, defaultExpandSources }: Props) {
             >
               <option value="all">All</option>
               <option value="approved">Approved</option>
+              <option value="otc_monograph">OTC Monograph</option>
+              <option value="unapproved_marketed">Marketed (Unapproved)</option>
               <option value="discontinued">Discontinued</option>
               <option value="not_found">Not Found</option>
               <option value="error">Error</option>

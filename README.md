@@ -18,8 +18,13 @@ to any static host (Netlify, Cloudflare Pages, GitHub Pages, S3, …).
 
 ## Features
 
-- **Five-layer lookup pipeline** — openFDA `drugsfda` → openFDA `label` →
-  RxNorm → ChEMBL → ClinicalTrials.gov, short-circuiting on first hit.
+- **Six-layer lookup pipeline** — openFDA `drugsfda` → openFDA `label` →
+  openFDA `ndc` → RxNorm → ChEMBL → ClinicalTrials.gov, short-circuiting
+  on first hit.
+- **Beyond NDA/BLA/ANDA** — the NDC layer captures drugs marketed under
+  the FDA OTC monograph (aspirin, ibuprofen, acetaminophen) and those
+  marketed without approval (homeopathic, etc.), with explicit status
+  values rather than misleading "approved" / "not_found" answers.
 - **ID translation** — internal codes (MK-3475, MEDI4736, AZD9291) are
   resolved to their INN via ChEMBL's structured synonym data, then re-run
   through the FDA layers.
@@ -157,9 +162,10 @@ to events, so reports surface aggregate patterns without storing PII.
 ```
 src/
   api/openfda.ts        layers 1 (drugsfda) and 2 (label)
-  api/rxnorm.ts         layer 3
-  api/chembl.ts         layer 4
-  api/clinicaltrials.ts layer 5
+  api/ndc.ts            layer 3 (NDC directory — OTC monograph, unapproved-marketed)
+  api/rxnorm.ts         layer 4
+  api/chembl.ts         layer 5
+  api/clinicaltrials.ts layer 6
   lookup.ts             orchestrates the pipeline with short-circuit
   cache.ts              localStorage result cache (7d default TTL)
   normalize.ts          name cleanup + INN heuristics
