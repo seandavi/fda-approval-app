@@ -107,7 +107,7 @@ export function AboutPage() {
               key={step.n}
               className="flex gap-3 rounded-md ring-1 ring-slate-200 bg-white p-3"
             >
-              <span className="flex-shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-full bg-sky-100 text-sky-700 text-xs font-semibold">
+              <span className="flex-shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-full bg-violet-100 text-violet-700 text-xs font-semibold">
                 {step.n}
               </span>
               <div className="space-y-1">
@@ -135,7 +135,7 @@ export function AboutPage() {
                   href={s.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="font-medium text-sky-700 hover:underline"
+                  className="font-medium text-violet-700 hover:underline"
                 >
                   {s.name}
                 </a>

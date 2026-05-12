@@ -99,7 +99,7 @@ export function SettingsPanel({ settings, onChange }: Props) {
             <button
               type="button"
               onClick={save}
-              className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500"
+              className="rounded-md bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-500"
             >
               Save
             </button>

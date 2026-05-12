@@ -76,7 +76,7 @@ export function InputPanel({
             if (e.key === "Enter" && !disabled) onSubmit();
           }}
           placeholder="e.g. pembrolizumab, Keytruda, MK-3475"
-          className="w-full rounded-md border-0 ring-1 ring-inset ring-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500"
+          className="w-full rounded-md border-0 ring-1 ring-inset ring-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-violet-500"
           disabled={disabled}
         />
       ) : (
@@ -85,7 +85,7 @@ export function InputPanel({
           onChange={(e) => onChange(e.target.value)}
           placeholder="One drug per line (or comma-separated)&#10;pembrolizumab&#10;Keytruda&#10;MK-3475"
           rows={6}
-          className="w-full rounded-md border-0 ring-1 ring-inset ring-slate-300 px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-sky-500"
+          className="w-full rounded-md border-0 ring-1 ring-inset ring-slate-300 px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-violet-500"
           disabled={disabled}
         />
       )}
@@ -110,7 +110,7 @@ export function InputPanel({
                 onModeChange("batch");
                 onChange(EXAMPLE_BATCH);
               }}
-              className="text-xs text-sky-700 hover:underline"
+              className="text-xs text-violet-700 hover:underline"
             >
               Load example
             </button>
@@ -119,7 +119,7 @@ export function InputPanel({
             type="button"
             onClick={onSubmit}
             disabled={disabled || count === 0 || overLimit}
-            className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-300"
+            className="rounded-md bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {disabled ? "Looking up…" : "Lookup"}
           </button>

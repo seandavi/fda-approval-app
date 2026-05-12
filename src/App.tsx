@@ -4,6 +4,7 @@ import { AboutPage } from "./components/AboutPage";
 import { InputPanel, type InputMode } from "./components/InputPanel";
 import { genericFeedbackUrl } from "./feedback";
 import { ProgressBar } from "./components/ProgressBar";
+import { ResultsStrip } from "./components/ResultsStrip";
 import { ResultsTable } from "./components/ResultsTable";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { lookupBatch } from "./lookup";
@@ -127,27 +128,27 @@ export function App() {
   }, [parsedNames, running, mode, settings]);
 
   return (
-    <div className="min-h-screen">
-      <header className="bg-white border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
+    <div className="lg:h-screen lg:flex lg:flex-col lg:overflow-hidden">
+      <header className="bg-gradient-to-r from-violet-700 to-violet-900 text-white flex-shrink-0">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-lg font-semibold text-slate-900">
+            <h1 className="text-xl font-bold tracking-tight">
               FDA Drug Approval Lookup
             </h1>
-            <p className="text-xs text-slate-500">
-              Layered resolution across openFDA, RxNorm, ChEMBL, and
-              ClinicalTrials.gov.
+            <p className="text-xs text-violet-200 mt-0.5">
+              Resolve drug names — brands, INNs, or internal codes — across
+              openFDA, RxNorm, ChEMBL, and ClinicalTrials.gov.
             </p>
           </div>
           <div className="flex items-center gap-4">
-            <nav className="inline-flex rounded-md bg-slate-100 p-0.5 text-xs">
+            <nav className="inline-flex rounded-md bg-white/15 ring-1 ring-white/20 p-0.5 text-xs backdrop-blur">
               <button
                 type="button"
                 onClick={() => setView("lookup")}
-                className={`px-3 py-1.5 rounded ${
+                className={`px-3 py-1.5 rounded transition-colors ${
                   view === "lookup"
-                    ? "bg-white shadow-sm font-medium text-slate-900"
-                    : "text-slate-600 hover:text-slate-900"
+                    ? "bg-white text-violet-900 font-semibold shadow-sm"
+                    : "text-violet-100 hover:text-white"
                 }`}
               >
                 Lookup
@@ -155,10 +156,10 @@ export function App() {
               <button
                 type="button"
                 onClick={() => setView("about")}
-                className={`px-3 py-1.5 rounded ${
+                className={`px-3 py-1.5 rounded transition-colors ${
                   view === "about"
-                    ? "bg-white shadow-sm font-medium text-slate-900"
-                    : "text-slate-600 hover:text-slate-900"
+                    ? "bg-white text-violet-900 font-semibold shadow-sm"
+                    : "text-violet-100 hover:text-white"
                 }`}
               >
                 About
@@ -168,7 +169,7 @@ export function App() {
               href={genericFeedbackUrl()}
               target="_blank"
               rel="noreferrer"
-              className="text-xs text-slate-600 hover:text-sky-700 inline-flex items-center gap-1"
+              className="text-xs text-violet-200 hover:text-white inline-flex items-center gap-1"
               title="Open a GitHub issue with feedback or a bug report"
             >
               Feedback
@@ -179,41 +180,63 @@ export function App() {
       </header>
 
       {view === "about" ? (
-        <AboutPage />
+        <main className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
+          <AboutPage />
+        </main>
       ) : (
-      <main className="max-w-6xl mx-auto px-4 py-6 space-y-4">
-        <InputPanel
-          mode={mode}
-          onModeChange={setMode}
-          value={inputValue}
-          onChange={setInputValue}
-          onSubmit={handleSubmit}
-          disabled={running}
-          batchLimit={BATCH_LIMIT}
-        />
-
-        {progress.total > 0 && (
-          <div className="bg-white rounded-lg shadow-sm ring-1 ring-slate-200 px-4 py-3">
-            <ProgressBar
-              completed={progress.completed}
-              total={progress.total}
+      <main className="lg:flex-1 lg:min-h-0 lg:overflow-hidden">
+        {/* Two-column dashboard. Page is viewport-locked on lg+ — the left
+            rail (input + settings) stays put while only the results panel
+            scrolls internally. Stacks and scrolls normally on narrow
+            viewports. */}
+        <div className="max-w-7xl mx-auto px-6 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:h-full lg:overflow-hidden">
+          <aside className="lg:col-span-4 xl:col-span-3 space-y-4 lg:overflow-y-auto lg:min-h-0 lg:pr-2">
+            <InputPanel
+              mode={mode}
+              onModeChange={setMode}
+              value={inputValue}
+              onChange={setInputValue}
+              onSubmit={handleSubmit}
+              disabled={running}
+              batchLimit={BATCH_LIMIT}
             />
-          </div>
-        )}
+            {progress.total > 0 && (
+              <div className="bg-white rounded-lg shadow-sm ring-1 ring-slate-200 px-4 py-3">
+                <ProgressBar
+                  completed={progress.completed}
+                  total={progress.total}
+                />
+              </div>
+            )}
+            <SettingsPanel settings={settings} onChange={setSettings} />
+          </aside>
 
-        <SettingsPanel settings={settings} onChange={setSettings} />
-
-        <ResultsTable
-          results={results}
-          defaultExpandSources={settings.showSourcesByDefault}
-        />
-
-        <footer className="text-center text-xs text-slate-400 pt-4 pb-8">
-          Data sources: openFDA, RxNav (NLM), ChEMBL (EMBL-EBI),
-          ClinicalTrials.gov. Not medical advice.
-        </footer>
+          <section className="lg:col-span-8 xl:col-span-9 space-y-4 lg:flex lg:flex-col lg:min-h-0">
+            <ResultsStrip results={results} />
+            {results.length === 0 ? (
+              <div className="bg-white rounded-lg shadow-sm ring-1 ring-slate-200 p-12 text-center lg:flex-1 lg:flex lg:flex-col lg:items-center lg:justify-center">
+                <p className="text-sm text-slate-600">
+                  Enter one or more drug names on the left to start a lookup.
+                </p>
+                <p className="text-xs text-slate-400 mt-2">
+                  Brand names, generic INNs, and internal company codes all work.
+                </p>
+              </div>
+            ) : (
+              <ResultsTable
+                results={results}
+                defaultExpandSources={settings.showSourcesByDefault}
+              />
+            )}
+          </section>
+        </div>
       </main>
       )}
+
+      <footer className="text-center text-xs text-slate-400 py-3 border-t border-slate-200 bg-white flex-shrink-0">
+        Data sources: openFDA, RxNav (NLM), ChEMBL (EMBL-EBI),
+        ClinicalTrials.gov. Not medical advice.
+      </footer>
     </div>
   );
 }
