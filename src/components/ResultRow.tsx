@@ -11,9 +11,21 @@ interface Props {
 export function ResultRow({ result, defaultExpanded }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
+  const statusBorder: Record<string, string> = {
+    approved: "border-l-emerald-500",
+    discontinued: "border-l-amber-500",
+    not_found: "border-l-rose-400",
+    pending: "border-l-violet-400",
+    error: "border-l-slate-400",
+  };
+
   return (
     <>
-      <tr className="border-t border-slate-200 hover:bg-slate-50">
+      <tr
+        className={`border-t border-slate-200 border-l-4 ${
+          statusBorder[result.status] ?? "border-l-transparent"
+        } hover:bg-slate-50`}
+      >
         <td className="px-3 py-2 align-top">
           <button
             type="button"
@@ -37,7 +49,7 @@ export function ResultRow({ result, defaultExpanded }: Props) {
         </td>
         <td className="px-3 py-2 align-top">
           {result.status === "pending" ? (
-            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-sky-500 border-r-transparent" />
+            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-violet-500 border-r-transparent" />
           ) : (
             <StatusBadge status={result.status} />
           )}
@@ -76,7 +88,7 @@ export function ResultRow({ result, defaultExpanded }: Props) {
                   href={reportResultUrl(result)}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex-shrink-0 text-xs text-slate-500 hover:text-sky-700 inline-flex items-center gap-1"
+                  className="flex-shrink-0 text-xs text-slate-500 hover:text-violet-700 inline-flex items-center gap-1"
                   title="Open a pre-filled GitHub issue about this result"
                 >
                   Report
@@ -111,7 +123,7 @@ export function ResultRow({ result, defaultExpanded }: Props) {
                           href={s.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="hover:text-sky-600"
+                          className="hover:text-violet-600"
                         >
                           {s.url}
                         </a>
