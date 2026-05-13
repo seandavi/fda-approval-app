@@ -36,7 +36,11 @@ export function stripPharmaSuffixes(name: string): string {
   return out;
 }
 
-const INTERNAL_ID_RE = /^[A-Z]{1,5}[- ]?\d{2,7}[A-Z]?$/;
+// Internal/research codes vary in shape: MK-3475, AZD9291, BA3011, ASG22CE,
+// AGS-22CE. Allow up to a 3-letter trailing suffix after the digit block
+// (covers conjugate naming like -CE, -ME, -MSE) without admitting random
+// alphanumeric tokens.
+const INTERNAL_ID_RE = /^[A-Z]{1,5}[- ]?\d{2,7}[- ]?[A-Z]{0,3}$/;
 
 export function looksLikeInternalId(name: string): boolean {
   const cleaned = name.replace(/\s+/g, "").toUpperCase();
@@ -68,7 +72,9 @@ export function looksLikeINN(token: string): boolean {
   if (/\d/.test(trimmed)) return false;
   if (/[A-Z]{2,}/.test(trimmed)) return false;          // brands like Cytoxan, HUMIRA
   if (!/^[a-zA-Z][a-zA-Z\- ]+$/.test(trimmed)) return false;
-  return INN_STEM_RE.test(trimmed);
+  // Multi-word INNs (e.g. "mecbotamab vedotin", ADC names) only need one
+  // token to carry a recognized stem — usually the antibody half (-mab).
+  return trimmed.split(/\s+/).some((part) => INN_STEM_RE.test(part));
 }
 
 export function hashName(normalized: string): string {

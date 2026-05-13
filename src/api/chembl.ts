@@ -39,53 +39,68 @@ function pickInnFromMolecule(mol: Molecule): string | undefined {
   return undefined;
 }
 
-export async function queryChembl(name: string): Promise<ChemblPartial> {
-  const sources: SourceHit[] = [];
-  // Exact-match synonym search: hits brand names, research codes, INNs, USANs.
+// Generate hyphenation/spacing variants of a research code. ChEMBL stores
+// these inconsistently — AGS-22CE is indexed but ASG22CE may not be, AMG 107
+// might exist but AMG107 may not. We try the original first, then variants.
+export function idVariants(name: string): string[] {
+  const out: string[] = [name];
+  const seen = new Set([name]);
+  const push = (v: string): void => {
+    if (v && !seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  };
+  push(name.replace(/([A-Za-z])(\d)/, "$1-$2"));
+  push(name.replace(/([A-Za-z])(\d)/, "$1 $2"));
+  push(name.replace(/-/g, ""));
+  push(name.replace(/\s+/g, ""));
+  return out;
+}
+
+async function queryChemblExact(
+  name: string
+): Promise<{ inn?: string; url: string; detail: string }> {
   const params = new URLSearchParams({
     molecule_synonyms__molecule_synonym__iexact: name,
     limit: "3",
   });
   const url = `${BASE}/molecule.json?${params.toString()}`;
-
   try {
     const r = await fetch(url);
-    if (!r.ok) {
-      sources.push({
-        api: "chembl",
-        url,
-        hit: false,
-        detail: `HTTP ${r.status}`,
-      });
-      return { sources };
-    }
+    if (!r.ok) return { url, detail: `HTTP ${r.status}` };
     const body = (await r.json()) as MoleculeResponse;
     const molecules = body.molecules ?? [];
     for (const mol of molecules) {
       const inn = pickInnFromMolecule(mol);
       if (inn) {
-        sources.push({
-          api: "chembl",
+        return {
+          inn,
           url,
-          hit: true,
           detail: `INN=${inn} (${mol.molecule_chembl_id ?? "?"})`,
-        });
-        return { resolvedINN: inn, sources };
+        };
       }
     }
-    sources.push({
-      api: "chembl",
+    return {
       url,
-      hit: false,
       detail: molecules.length === 0 ? "no molecules" : "no INN/USAN synonym",
-    });
+    };
   } catch (e) {
+    return { url, detail: e instanceof Error ? e.message : "fetch failed" };
+  }
+}
+
+export async function queryChembl(name: string): Promise<ChemblPartial> {
+  const sources: SourceHit[] = [];
+  for (const variant of idVariants(name)) {
+    const res = await queryChemblExact(variant);
     sources.push({
-      api: "chembl",
-      url,
-      hit: false,
-      detail: e instanceof Error ? e.message : "fetch failed",
+      api: variant === name ? "chembl" : `chembl (variant: ${variant})`,
+      url: res.url,
+      hit: !!res.inn,
+      detail: res.detail,
     });
+    if (res.inn) return { resolvedINN: res.inn, sources };
   }
   return { sources };
 }

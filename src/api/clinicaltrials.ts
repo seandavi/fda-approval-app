@@ -45,17 +45,33 @@ export async function queryClinicalTrials(name: string): Promise<CtPartial> {
     }
     const body = (await r.json()) as StudiesResponse;
     const lowerName = name.toLowerCase();
+    // Match the queried token in a few common formattings: bare "BA3011",
+    // hyphenated "BA-3011", spaced "BA 3011".
+    const tokenForms = new Set([
+      lowerName,
+      lowerName.replace(/-/g, ""),
+      lowerName.replace(/-/g, " "),
+      lowerName.replace(/([a-z])(\d)/, "$1-$2"),
+      lowerName.replace(/([a-z])(\d)/, "$1 $2"),
+    ]);
     const candidates = new Set<string>();
 
-    // Only collect otherNames from interventions whose canonical name
-    // contains the queried ID. This avoids picking co-administered drugs
-    // from combination trials (e.g. pembro + cyclophosphamide → "Cytoxan").
+    // The intervention name must be exactly the token (modulo a trailing
+    // dose suffix like "BA3011 50 mg") — substring match would let combo
+    // interventions ("BA3011 + cyclophosphamide") leak co-drug names
+    // through otherNames.
+    const ivMatchesToken = (ivName: string): boolean => {
+      const trimmed = ivName.toLowerCase().trim();
+      if (tokenForms.has(trimmed)) return true;
+      const firstWord = trimmed.split(/\s+/)[0] ?? "";
+      return tokenForms.has(firstWord);
+    };
+
     for (const study of body.studies ?? []) {
       const interventions =
         study.protocolSection?.armsInterventionsModule?.interventions ?? [];
       for (const iv of interventions) {
-        const ivName = (iv.name ?? "").toLowerCase();
-        if (!ivName.includes(lowerName)) continue;
+        if (!ivMatchesToken(iv.name ?? "")) continue;
         for (const n of iv.otherNames ?? []) candidates.add(n);
       }
     }
