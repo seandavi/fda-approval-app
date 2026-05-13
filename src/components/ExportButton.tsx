@@ -1,5 +1,6 @@
 import { trackEvent } from "../analytics";
 import type { DrugResult } from "../types";
+import { SHORT_SHA } from "../version";
 
 const COLUMNS: Array<{ header: string; pick: (r: DrugResult) => string }> = [
   { header: "inputName", pick: (r) => r.inputName },
@@ -13,6 +14,7 @@ const COLUMNS: Array<{ header: string; pick: (r: DrugResult) => string }> = [
   { header: "sponsor", pick: (r) => r.sponsor ?? "" },
   { header: "resolvedVia", pick: (r) => r.resolvedVia ?? "" },
   { header: "lookedUpAt", pick: (r) => r.lookedUpAt },
+  { header: "app_version", pick: () => SHORT_SHA },
 ];
 
 function csvEscape(value: string): string {
@@ -43,7 +45,8 @@ export function ExportButton({ results }: Props) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `fda-lookup-${new Date().toISOString().slice(0, 10)}.csv`;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.download = `fda-lookup-${dateStr}-${SHORT_SHA}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

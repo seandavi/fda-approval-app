@@ -10,6 +10,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { lookupBatch } from "./lookup";
 import { parseBatchInput } from "./normalize";
 import type { AppSettings, DrugResult } from "./types";
+import { COMMIT_URL, SHORT_SHA } from "./version";
 
 const SETTINGS_KEY = "fda_lookup_settings_v1";
 
@@ -263,7 +264,20 @@ export function App() {
           Sean Davis
         </a>{" "}
         · Data sources: openFDA, RxNav (NLM), ChEMBL (EMBL-EBI),
-        ClinicalTrials.gov. Not medical advice.
+        ClinicalTrials.gov. Not medical advice. ·{" "}
+        {COMMIT_URL ? (
+          <a
+            href={COMMIT_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="font-mono hover:text-slate-600 hover:underline underline-offset-2"
+            title="View this build on GitHub"
+          >
+            {SHORT_SHA}
+          </a>
+        ) : (
+          <span className="font-mono">{SHORT_SHA}</span>
+        )}
       </footer>
     </div>
   );

@@ -9,6 +9,10 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  # Surface the git SHA to the client bundle so the footer and CSV exports
+  # can show which version produced a result. COMMIT_REF is set by Netlify
+  # for every deploy.
+  VITE_GIT_SHA = "$COMMIT_REF"
 
 # SPA-style routing: nothing else handles /lookup or /about, but if you add
 # client-side routes later this rewrite keeps deep links working.
