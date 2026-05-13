@@ -82,10 +82,15 @@ function buildDrugsFdaUrl(
   apiKey: string,
   wildcard: boolean
 ): string {
+  // openFDA tokenizes on whitespace. A naked multi-token wildcard like
+  // `mecbotamab vedotin*` parses as `mecbotamab` OR `vedotin*` and pulls in
+  // every -vedotin drug (Polivy, Adcetris, Padcev, ...). The wildcard pass
+  // is only safe on single-token names — callers must guard against
+  // wildcard=true with a multi-token name (see queryDrugsFda).
   const value = wildcard ? `${name}*` : `"${name}"`;
   const params = new URLSearchParams({
     search: `openfda.${field}:${value}`,
-    limit: "5",
+    limit: "10",
   });
   if (apiKey) params.set("api_key", apiKey);
   return `${OPENFDA_BASE}/drug/drugsfda.json?${params.toString()}`;
@@ -110,38 +115,70 @@ function isStrongDrugsFdaMatch(query: string, r: DrugsFdaResult): boolean {
   return false;
 }
 
+// Application-type priority for tie-breaking. We want the original
+// innovator approval for a molecule, not the first ANDA generic openFDA
+// happens to return. NDA/BLA outrank ANDA; within a class, earlier
+// approval-date wins.
+function appTypeRank(num: string | undefined): number {
+  if (!num) return 0;
+  if (num.startsWith("BLA")) return 3;
+  if (num.startsWith("NDA")) return 3;
+  if (num.startsWith("ANDA")) return 1;
+  return 0;
+}
+
+interface RankedMatch {
+  result: DrugsFdaResult;
+  earliestAp: string;
+  rank: number;
+}
+
 function interpretDrugsFda(
   query: string,
   results: DrugsFdaResult[]
 ): Omit<OpenFdaPartial, "sources" | "resolvedVia"> {
+  const candidates: RankedMatch[] = [];
   for (const r of results) {
     if (!isStrongDrugsFdaMatch(query, r)) continue;
-
     const approvals = (r.submissions ?? []).filter(
       (s) => s.submission_status === "AP"
     );
     if (approvals.length === 0) continue;
-
     const earliest = approvals
       .map((s) => s.submission_status_date)
       .filter((d): d is string => !!d)
       .sort()[0];
-
-    const allDiscontinued =
-      (r.products ?? []).length > 0 &&
-      (r.products ?? []).every((p) => p.marketing_status === "Discontinued");
-
-    return {
-      status: allDiscontinued ? "discontinued" : "approved",
-      applicationNumber: r.application_number,
-      applicationType: appType(r.application_number),
-      brandName: r.openfda?.brand_name?.[0] ?? r.products?.[0]?.brand_name,
-      genericName: r.openfda?.generic_name?.[0],
-      approvalDate: formatDate(earliest),
-      sponsor: r.sponsor_name,
-    };
+    if (!earliest) continue;
+    candidates.push({
+      result: r,
+      earliestAp: earliest,
+      rank: appTypeRank(r.application_number),
+    });
   }
-  return {};
+  if (candidates.length === 0) return {};
+
+  // Prefer NDA/BLA over ANDA; within a class, earliest approval date wins
+  // (so 5FU → original 1962 NDA rather than a recent ANDA).
+  candidates.sort((a, b) => {
+    if (a.rank !== b.rank) return b.rank - a.rank;
+    return a.earliestAp.localeCompare(b.earliestAp);
+  });
+  const best = candidates[0];
+  const r = best.result;
+
+  const allDiscontinued =
+    (r.products ?? []).length > 0 &&
+    (r.products ?? []).every((p) => p.marketing_status === "Discontinued");
+
+  return {
+    status: allDiscontinued ? "discontinued" : "approved",
+    applicationNumber: r.application_number,
+    applicationType: appType(r.application_number),
+    brandName: r.openfda?.brand_name?.[0] ?? r.products?.[0]?.brand_name,
+    genericName: r.openfda?.generic_name?.[0],
+    approvalDate: formatDate(best.earliestAp),
+    sponsor: r.sponsor_name,
+  };
 }
 
 async function queryDrugsFda(
@@ -152,7 +189,9 @@ async function queryDrugsFda(
   const sources: SourceHit[] = [];
   const api = `openfda/drugsfda (${field})`;
 
-  for (const wildcard of [false, true]) {
+  // Skip the wildcard pass for multi-token names — see buildDrugsFdaUrl.
+  const passes = name.includes(" ") ? [false] : [false, true];
+  for (const wildcard of passes) {
     const url = buildDrugsFdaUrl(field, name, apiKey, wildcard);
     try {
       const r = await fetchWithBackoff(url);
