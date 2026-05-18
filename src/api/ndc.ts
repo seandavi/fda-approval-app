@@ -55,18 +55,39 @@ function statusFor(category: string | undefined): ApprovalStatus | undefined {
   return undefined; // BULK INGREDIENT, KIT, STANDARDIZED ALLERGENIC, etc.
 }
 
-// Single-ingredient exact match is the only result quality we accept here.
-// A multi-ingredient product (e.g. Aggrenox for "aspirin") would mislead.
+// Common salt suffixes openFDA NDC records use. Mirrors openfda.ts so we
+// match "tamoxifen" against an "tamoxifen citrate" NDC ingredient.
+const SALT_SUFFIX_RE = new RegExp(
+  "^(?:hydrochloride|hcl|sodium|potassium|calcium|magnesium|sulfate|sulphate|" +
+    "phosphate|acetate|tartrate|succinate|fumarate|maleate|citrate|tosylate|" +
+    "mesylate|besylate|edisylate|esylate|lactate|gluconate|bromide|chloride|" +
+    "iodide|nitrate|carbonate|bicarbonate|hemihydrate|dihydrate|monohydrate|" +
+    "anhydrous|free base|base)(?:\\s|$)"
+);
+
+function nameMatches(query: string, candidate: string | undefined): boolean {
+  if (!candidate) return false;
+  const c = candidate.toLowerCase();
+  if (c === query) return true;
+  if (c.startsWith(`${query} `)) {
+    return SALT_SUFFIX_RE.test(c.slice(query.length + 1));
+  }
+  return false;
+}
+
+// Accept results where (a) the brand_name is an exact match — including
+// combination products with distinct brand identity (Rybrevant Faspro,
+// Tecentriq Hybreza, Opdualag), or (b) the product is single-ingredient and
+// the ingredient/generic matches the query exactly or as a salt form. We
+// still reject token-substring combos like Aggrenox for "aspirin" (#6, #13).
 function isStrongMatch(query: string, r: NdcResult): boolean {
   const q = query.toLowerCase();
+  if (nameMatches(q, r.brand_name)) return true;
   const ingredients = r.active_ingredients ?? [];
-  if (ingredients.length !== 1) return false;
-  const ingName = (ingredients[0].name ?? "").toLowerCase();
-  if (ingName === q) return true;
-  // Also accept exact generic_name or brand_name match on the queried token,
-  // in case the API formats the ingredient name with extra qualifiers.
-  if ((r.generic_name ?? "").toLowerCase() === q) return true;
-  if ((r.brand_name ?? "").toLowerCase() === q) return true;
+  if (ingredients.length === 1) {
+    if (nameMatches(q, ingredients[0].name)) return true;
+    if (nameMatches(q, r.generic_name)) return true;
+  }
   return false;
 }
 

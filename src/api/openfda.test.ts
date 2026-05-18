@@ -120,4 +120,118 @@ describe("queryOpenFdaDrugsFda", () => {
       expect(url).not.toMatch(/generic_name:[^"]*vedotin\*/);
     }
   });
+
+  it("resolves combo product with distinct brand name (regression #13: Rybrevant Faspro)", async () => {
+    // RYBREVANT FASPRO has two ingredients (amivantamab + hyaluronidase).
+    // Pre-fix, isStrongDrugsFdaMatch's `substances.length <= 1` clause
+    // rejected the result, so the layer returned not_found.
+    mock.on("/drug/drugsfda.json", {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          application_number: "BLA761433",
+          sponsor_name: "JANSSEN BIOTECH",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20251217",
+            },
+          ],
+          products: [
+            { marketing_status: "Prescription", brand_name: "RYBREVANT FASPRO" },
+          ],
+          openfda: {
+            brand_name: ["RYBREVANT FASPRO"],
+            generic_name: [
+              "AMIVANTAMAB AND HYALURONIDASE-LPUJ (HUMAN RECOMBINANT)",
+            ],
+            substance_name: [
+              "AMIVANTAMAB",
+              "HYALURONIDASE (HUMAN RECOMBINANT)",
+            ],
+          },
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await queryOpenFdaDrugsFda("Rybrevant Faspro", "");
+
+    expect(result.status).toBe("approved");
+    expect(result.applicationNumber).toBe("BLA761433");
+    expect(result.brandName).toBe("RYBREVANT FASPRO");
+    expect(result.approvalDate).toBe("2025-12-17");
+  });
+
+  it("resolves base INN against salt-form generic (regression #13: tamoxifen → TAMOXIFEN CITRATE)", async () => {
+    // Pre-fix, "tamoxifen" didn't match a single-ingredient result whose
+    // substance_name was "TAMOXIFEN CITRATE" because the exact-equality check
+    // failed. Salt-form matching now bridges base INN ↔ salt variant.
+    mock.on("/drug/drugsfda.json", {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          application_number: "NDA021807",
+          sponsor_name: "MAYNE PHARMA COMMRCL",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20051029",
+            },
+          ],
+          products: [
+            { marketing_status: "Prescription", brand_name: "SOLTAMOX" },
+          ],
+          openfda: {
+            brand_name: ["SOLTAMOX"],
+            generic_name: ["TAMOXIFEN CITRATE"],
+            substance_name: ["TAMOXIFEN CITRATE"],
+          },
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await queryOpenFdaDrugsFda("tamoxifen", "");
+
+    expect(result.status).toBe("approved");
+    expect(result.applicationNumber).toBe("NDA021807");
+  });
+
+  it("still rejects combo products whose brand_name doesn't match the query (regression #6: aspirin → Aggrenox)", async () => {
+    // The brand-name exact-match relaxation must not regress #6 — a query
+    // for "aspirin" against an Aggrenox-shaped record still has no exact
+    // brand-name match and 2 substances, so it should be filtered out.
+    mock.on("/drug/drugsfda.json", {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          application_number: "NDA021521",
+          sponsor_name: "BOEHRINGER INGELHEIM",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "19991123",
+            },
+          ],
+          products: [
+            { marketing_status: "Prescription", brand_name: "AGGRENOX" },
+          ],
+          openfda: {
+            brand_name: ["AGGRENOX"],
+            generic_name: ["ASPIRIN AND EXTENDED-RELEASE DIPYRIDAMOLE"],
+            substance_name: ["ASPIRIN", "DIPYRIDAMOLE"],
+          },
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await queryOpenFdaDrugsFda("aspirin", "");
+
+    expect(result.status).toBeUndefined();
+  });
 });
