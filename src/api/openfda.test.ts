@@ -346,4 +346,90 @@ describe("fetchLabelIndicationByAppNum", () => {
     expect(result.sources).toHaveLength(1);
     expect(result.sources[0].hit).toBe(false);
   });
+
+  it("prefers NDA/BLA labels over ANDA labels for the same appnum (multi-SPL records)", async () => {
+    // openFDA can return both the original NDA label and a generic ANDA
+    // label for the same molecule. The NDA label has the canonical
+    // indications and should win even if listed second.
+    mock.on(/openfda\.application_number/, {
+      meta: { results: { total: 2 } },
+      results: [
+        {
+          openfda: { application_number: ["NDA012209"] },
+          marketing_category: "ANDA",
+          indications_and_usage: ["ANDA label — minimal indication."],
+        },
+        {
+          openfda: { application_number: ["NDA012209"] },
+          marketing_category: "NDA",
+          indications_and_usage: [
+            "Original NDA label — comprehensive indications across multiple " +
+              "cancer types and dosing schedules.",
+          ],
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("NDA012209", "");
+
+    expect(result.indicationText).toContain("Original NDA label");
+    expect(result.indicationText).not.toContain("ANDA label");
+  });
+
+  it("picks the longest indications text within the same marketing category (most-current label)", async () => {
+    // Two NDA labels with different revision dates aren't distinguishable
+    // by category — pick the one with more text since fully-supplemented
+    // labels grow over time.
+    mock.on(/openfda\.application_number/, {
+      meta: { results: { total: 2 } },
+      results: [
+        {
+          openfda: { application_number: ["BLA125514"] },
+          marketing_category: "BLA",
+          indications_and_usage: ["Old indication: melanoma."],
+        },
+        {
+          openfda: { application_number: ["BLA125514"] },
+          marketing_category: "BLA",
+          indications_and_usage: [
+            "Current indications: melanoma, NSCLC, HNSCC, classical Hodgkin " +
+              "lymphoma, urothelial, MSI-H solid tumors, and more.",
+          ],
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("BLA125514", "");
+
+    expect(result.indicationText).toContain("NSCLC");
+    expect(result.indicationText).toContain("urothelial");
+  });
+
+  it("treats fully-stripped indications as no usable grounding (defensive)", async () => {
+    // Synthetic edge case: the entire indications_and_usage is content
+    // that the boilerplate stripper removes (just "See full prescribing
+    // information…" lines). After stripping, cleaned is empty — must
+    // report as no grounding rather than a zero-char "successful" hit.
+    mock.on(/openfda\.application_number/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["NDA000001"] },
+          indications_and_usage: [
+            "See full prescribing information for FOO. " +
+              "See full prescribing information for BAR.",
+          ],
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("NDA000001", "");
+
+    expect(result.indicationText).toBeUndefined();
+    expect(result.sources[0].hit).toBe(false);
+    expect(result.sources[0].detail).toMatch(/stripping boilerplate/);
+  });
 });

@@ -23,10 +23,13 @@ import { GoogleGenAI, type Content } from "@google/genai";
 
 const DEFAULT_REGION = process.env.VERTEX_REGION ?? "global";
 const DEFAULT_MODEL = process.env.VERTEX_MODEL ?? "gemini-3.1-flash-lite";
-// Gemini 3 preview uses ~thinking tokens, so it needs headroom even when
-// the final answer is a tiny JSON object. Bumped from 2048 to leave room
-// for thinking tokens on longer prompts and for response payloads that
-// can include 25+ verbatim indication strings (Keytruda, Opdivo).
+// Caps the *generated* (output + thinking) token budget per call. Gemini 3
+// preview uses thinking tokens that count against this even when the final
+// JSON is tiny. Bumped from 2048 to leave reasoning headroom for prompts
+// that now include up to MAX_LABEL_CHARS of grounding text, and to fit
+// response payloads that can include 25+ verbatim indication strings on
+// big-tent oncology drugs (Keytruda, Opdivo). Input/context size is bounded
+// separately by MAX_LABEL_CHARS + MAX_DRUG_NAME_LEN, not by this constant.
 const MAX_TOKENS = 4096;
 const MAX_DRUG_NAME_LEN = 200;
 // Cap on label `indications_and_usage` text included in the prompt.

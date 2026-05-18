@@ -745,6 +745,112 @@ describe("lookupDrug — label-text grounding for arbiter (#21)", () => {
     expect(r.originalIndication).toBeUndefined();
   });
 
+  it("clears labelIndicationText + currentIndications when arbiter overrides the candidate (#21/#22)", async () => {
+    // The label text we fetch belongs to the rejected pipeline app, and
+    // the indications enumerated by the arbiter came from that same label
+    // — both must be cleared after an override. We don't refetch for the
+    // LLM-proposed app because the original NDAs that hit this path are
+    // exactly the ones missing from openFDA.
+    mock.on(
+      "/drug/drugsfda.json",
+      drugsfdaApproved({
+        appNum: "ANDA071868",
+        date: "19900604",
+        brand: "CYTARABINE",
+        generic: "CYTARABINE",
+      })
+    );
+    mock.on(/openfda\.application_number:"ANDA071868"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["ANDA071868"] },
+          marketing_category: "ANDA",
+          indications_and_usage: [
+            "Cytarabine is indicated for acute non-lymphocytic leukemia.",
+          ],
+        },
+      ],
+    });
+    mock.on("/drug/ndc.json", EMPTY_NDC);
+    mock.on(
+      "/api/llm-lookup",
+      llmPayload({
+        agreement: "correct",
+        status: "approved",
+        confidence: "high",
+        application_number: "NDA016406",
+        application_type: "NDA",
+        approval_date: "1969-06-24",
+        brand_name: "Cytosar-U",
+        generic_name: "cytarabine",
+        current_indications: [
+          "acute non-lymphocytic leukemia",
+        ],
+        original_indication: "acute leukemia",
+        rationale: "Original Cytosar-U NDA predates openFDA's online window.",
+      })
+    );
+    mock.install();
+
+    const r = await lookupDrug("Cytarabine", OPTS);
+
+    expect(r.resolvedVia).toBe("llm");
+    expect(r.applicationNumber).toBe("NDA016406");
+    // Label text + current indications came from the rejected ANDA's label.
+    expect(r.labelIndicationText).toBeUndefined();
+    expect(r.currentIndications).toBeUndefined();
+    // Original indication is the model's training-knowledge answer about
+    // the corrected approval, not derived from the rejected label.
+    expect(r.originalIndication).toBe("acute leukemia");
+  });
+
+  it("preserves labelIndicationText + currentIndications when arbiter confirms (no override)", async () => {
+    mock.on(
+      /openfda\.brand_name:"pembrolizumab"/,
+      drugsfdaApproved({
+        appNum: "BLA125514",
+        date: "20140904",
+        brand: "KEYTRUDA",
+        generic: "PEMBROLIZUMAB",
+      })
+    );
+    mock.on(/openfda\.generic_name:"pembrolizumab"/, EMPTY_FDA);
+    mock.on(/openfda\.application_number:"BLA125514"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["BLA125514"] },
+          indications_and_usage: ["Keytruda is indicated for melanoma."],
+        },
+      ],
+    });
+    mock.on(/ndc\.json/, EMPTY_NDC);
+    mock.on(
+      "/api/llm-lookup",
+      llmPayload({
+        agreement: "confirm",
+        status: "approved",
+        confidence: "high",
+        application_number: "BLA125514",
+        application_type: "BLA",
+        approval_date: "2014-09-04",
+        current_indications: ["unresectable or metastatic melanoma"],
+        rationale: "Label matches.",
+      })
+    );
+    mock.install();
+
+    const r = await lookupDrug("pembrolizumab", OPTS);
+
+    expect(r.resolvedVia).toBe("openfda_brand");
+    expect(r.applicationNumber).toBe("BLA125514");
+    expect(r.labelIndicationText).toContain("melanoma");
+    expect(r.currentIndications).toEqual([
+      "unresectable or metastatic melanoma",
+    ]);
+  });
+
   it("handles null/missing indications fields gracefully (#22 — fixtures from #18 still pass)", async () => {
     mock.on(
       /openfda\.brand_name:"pembrolizumab"/,

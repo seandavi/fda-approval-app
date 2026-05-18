@@ -358,8 +358,12 @@ export async function lookupDrug(
       if (llm.agreement) result.llmAgreement = llm.agreement;
       if (llm.confidence) result.llmConfidence = llm.confidence;
       if (llm.rationale) result.llmRationale = llm.rationale;
-      // Indications flow through regardless of confirm/correct/override —
-      // they describe the molecule, not the application history.
+      // Indications are assigned unconditionally here, but the override
+      // block below clears `currentIndications` if the LLM corrects to a
+      // different application — the verbatim list was extracted from the
+      // rejected pipeline candidate's label, not the corrected one.
+      // `originalIndication` is the model's training-knowledge answer
+      // about the molecule's first approval and remains valid either way.
       if (llm.currentIndications && llm.currentIndications.length > 0) {
         result.currentIndications = llm.currentIndications;
       }
@@ -384,6 +388,16 @@ export async function lookupDrug(
           result.genericName = llm.genericName ?? result.genericName;
           result.sponsor = llm.sponsor ?? result.sponsor;
           result.resolvedVia = "llm";
+          // The label text we fetched belongs to the *rejected* pipeline
+          // application — keeping it on the result would attach indications
+          // from the wrong application. The arbiter's enumerated
+          // currentIndications already came from that same rejected label
+          // and are similarly suspect, so drop both. (We don't refetch for
+          // the LLM-proposed app because the original innovator NDAs that
+          // hit this path are exactly the ones missing from openFDA — there
+          // is no current label to fetch.)
+          result.labelIndicationText = undefined;
+          result.currentIndications = undefined;
           emitLayerHit(7, result.normalizedName);
         }
       } else if (!pipelineFinding && llmHasAnswer) {

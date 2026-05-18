@@ -397,6 +397,41 @@ function stripLabelBoilerplate(text: string): string {
 // section, or when openFDA has no current label record indexed by app#.
 // Errors are recorded in `sources` but never thrown — the arbiter can run
 // without this grounding and degrades gracefully.
+// Pick the most useful label record from a results page. openFDA can
+// return multiple SPL records per application_number — different sponsors,
+// reformulations, or generic versions of the same NDA. We:
+//   1) prefer entries whose marketing_category is the original NDA/BLA
+//      (skips generic-ANDA labels that mirror the original);
+//   2) within that, pick the one with the longest indications_and_usage
+//      (longer text is virtually always the more current, fully-supplemented
+//      label — withdrawn indications are deletions, additions are the rule);
+//   3) fall back to the first entry with any indications_and_usage if no
+//      NDA/BLA category is present.
+function pickBestLabelResult(
+  results: LabelResult[]
+): { result: LabelResult; rawIndication: string } | null {
+  type Candidate = { r: LabelResult; raw: string; isOriginal: boolean };
+  const candidates: Candidate[] = [];
+  for (const r of results) {
+    const raw = r.indications_and_usage?.[0];
+    if (!raw || !raw.trim()) continue;
+    const cat = Array.isArray(r.marketing_category)
+      ? r.marketing_category[0]
+      : r.marketing_category;
+    candidates.push({
+      r,
+      raw,
+      isOriginal: cat === "NDA" || cat === "BLA",
+    });
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => {
+    if (a.isOriginal !== b.isOriginal) return a.isOriginal ? -1 : 1;
+    return b.raw.length - a.raw.length;
+  });
+  return { result: candidates[0].r, rawIndication: candidates[0].raw };
+}
+
 export async function fetchLabelIndicationByAppNum(
   applicationNumber: string,
   apiKey: string
@@ -405,10 +440,13 @@ export async function fetchLabelIndicationByAppNum(
   const api = "openfda/label (by appnum)";
 
   // openFDA stores application_number padded — keep whatever caller gave us
-  // (drugsfda already returns "NDA125514"-shape strings).
+  // (drugsfda already returns "NDA125514"-shape strings). We request up to
+  // 5 results so that pickBestLabelResult can choose the most current /
+  // complete label among possible duplicates rather than relying on
+  // openFDA's unspecified result order.
   const params = new URLSearchParams({
     search: `openfda.application_number:"${applicationNumber}"`,
-    limit: "1",
+    limit: "5",
   });
   if (apiKey) params.set("api_key", apiKey);
   const url = `${OPENFDA_BASE}/drug/label.json?${params.toString()}`;
@@ -434,8 +472,8 @@ export async function fetchLabelIndicationByAppNum(
       sources.push({ api, url: redact(url), hit: false, detail: "empty" });
       return { sources };
     }
-    const raw = results[0].indications_and_usage?.[0];
-    if (!raw || !raw.trim()) {
+    const best = pickBestLabelResult(results);
+    if (!best) {
       sources.push({
         api,
         url: redact(url),
@@ -444,7 +482,18 @@ export async function fetchLabelIndicationByAppNum(
       });
       return { sources };
     }
-    const cleaned = stripLabelBoilerplate(raw);
+    const cleaned = stripLabelBoilerplate(best.rawIndication);
+    if (!cleaned) {
+      // Boilerplate stripping ate everything — defensive: treat as no usable
+      // grounding rather than reporting a "successful" 0-char hit.
+      sources.push({
+        api,
+        url: redact(url),
+        hit: false,
+        detail: "no indications after stripping boilerplate",
+      });
+      return { sources };
+    }
     sources.push({
       api,
       url: redact(url),
