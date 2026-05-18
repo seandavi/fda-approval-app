@@ -143,7 +143,47 @@ function IndicationsBlock({ result }: { result: DrugResult }) {
   );
 }
 
+// Detect whether Layer 7 was attempted but didn't return a usable
+// verdict. The arbiter is gated by status (skipped for OTC monograph /
+// unapproved-marketed), so we infer "should have run" from the status
+// alone — pending results don't qualify since the arbiter hasn't had a
+// chance to run yet. If a source row mentions the LLM proxy, that's
+// stronger evidence that we tried and failed (#32).
+function arbiterRanButFailed(result: DrugResult): boolean {
+  if (result.llmAgreement || result.llmRationale) return false;
+  if (
+    result.status === "pending" ||
+    result.status === "otc_monograph" ||
+    result.status === "unapproved_marketed"
+  ) {
+    return false;
+  }
+  return result.sources.some((s) => s.api.startsWith("llm/"));
+}
+
 function ArbiterBlock({ result }: { result: DrugResult }) {
+  // Surface arbiter failures explicitly — otherwise an offline / errored
+  // proxy is indistinguishable from a successful no-op run, and users
+  // wonder why indications are missing (#32).
+  if (arbiterRanButFailed(result)) {
+    const llmSource = result.sources.find((s) => s.api.startsWith("llm/"));
+    return (
+      <section className="rounded-md ring-1 px-3 py-2.5 text-xs bg-slate-100 ring-slate-200 text-slate-700">
+        <div className="font-semibold">LLM arbiter unavailable</div>
+        <p className="mt-1 leading-relaxed">
+          Layer 7 was attempted but did not return a verdict. The result
+          reflects the deterministic pipeline only — indication extraction
+          and arbiter cross-checks are not available for this row.
+        </p>
+        {llmSource?.detail && (
+          <p className="mt-1 text-[11px] opacity-75">
+            Reason: <code>{llmSource.detail}</code>
+          </p>
+        )}
+      </section>
+    );
+  }
+
   if (!result.llmAgreement && !result.llmRationale) return null;
 
   const tone =

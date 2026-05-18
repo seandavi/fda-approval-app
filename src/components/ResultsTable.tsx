@@ -164,31 +164,42 @@ export function ResultsTable({ results, selectedKey, onSelect }: Props) {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500 sticky top-0 z-10">
             <tr>
-              {HEADERS.map((h) => (
-                <th
-                  key={h.key}
-                  className="px-3 py-2 font-medium select-none whitespace-nowrap"
-                >
-                  <span
-                    onClick={() => {
-                      if (sortKey === h.key) setSortAsc((v) => !v);
-                      else {
-                        setSortKey(h.key);
-                        setSortAsc(true);
-                      }
-                    }}
-                    className="cursor-pointer"
+              {HEADERS.map((h) => {
+                const isActive = sortKey === h.key;
+                return (
+                  <th
+                    key={h.key}
+                    aria-sort={
+                      isActive
+                        ? sortAsc
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    className="px-3 py-2 font-medium select-none whitespace-nowrap"
                   >
-                    {h.label}
-                    {sortKey === h.key && (
-                      <span className="ml-1 text-slate-400">
-                        {sortAsc ? "▲" : "▼"}
-                      </span>
-                    )}
-                  </span>
-                  {h.tooltip && <InfoTooltip side="bottom" text={h.tooltip} />}
-                </th>
-              ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (sortKey === h.key) setSortAsc((v) => !v);
+                        else {
+                          setSortKey(h.key);
+                          setSortAsc(true);
+                        }
+                      }}
+                      className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1"
+                    >
+                      {h.label}
+                      {isActive && (
+                        <span className="ml-1 text-slate-400">
+                          {sortAsc ? "▲" : "▼"}
+                        </span>
+                      )}
+                    </button>
+                    {h.tooltip && <InfoTooltip side="bottom" text={h.tooltip} />}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
