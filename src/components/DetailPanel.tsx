@@ -285,18 +285,20 @@ function SourcesBlock({ result }: { result: DrugResult }) {
                 )}
               </td>
               <td className="py-1 pr-3 text-slate-700">{s.detail ?? ""}</td>
-              <td className="py-1 text-slate-500 break-all">
+              <td className="py-1 whitespace-nowrap">
                 {s.url ? (
                   <a
                     href={s.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="hover:text-violet-600"
+                    title={s.url}
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-inset ring-slate-200 bg-white hover:bg-slate-50 hover:text-violet-700 hover:ring-violet-300"
                   >
-                    {s.url}
+                    Open
+                    <span aria-hidden="true">↗</span>
                   </a>
                 ) : (
-                  "—"
+                  <span className="text-slate-400">—</span>
                 )}
               </td>
             </tr>
