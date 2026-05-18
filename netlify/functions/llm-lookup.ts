@@ -138,12 +138,23 @@ function userPrompt(name: string, pipeline?: PipelineFinding): string {
     `- approval_date must be the FIRST FDA approval, even if decades old.\n` +
     `- If unsure of exact date or application number, set them to null and ` +
     `lower confidence — do not guess.\n` +
-    `- current_indications must be drawn FROM THE PROVIDED LABEL TEXT ONLY. ` +
-    `Enumerate every distinct indication. Do not summarize, do not deduplicate ` +
-    `by therapy area, do not normalize phrasing. Use verbatim wording from ` +
-    `the label, including biomarker requirements, lines of therapy, and ` +
-    `combination partners. If no label text was provided, set current_indications ` +
-    `to null — do NOT fall back to your training knowledge for this field.\n` +
+    `- current_indications: when label text IS provided, this field MUST be ` +
+    `a non-empty array. Enumerate EVERY distinct indication on the label — ` +
+    `oncology labels routinely list 15-25 indications across tumor types ` +
+    `and you must include all of them, not just the headline one. Do not ` +
+    `summarize, do not deduplicate by therapy area, do not normalize ` +
+    `phrasing. Use verbatim wording from the label, including biomarker ` +
+    `requirements, lines of therapy, age cohorts, and combination partners. ` +
+    `Each indication is its own array entry. Setting this to null when ` +
+    `label text is provided is a bug — extract the indications. Set to ` +
+    `null ONLY when no label text was provided. Never fall back to your ` +
+    `training knowledge for this field.\n` +
+    `  Example: for pembrolizumab (Keytruda) the array might include ` +
+    `["unresectable or metastatic melanoma", "adjuvant treatment of adult ` +
+    `and pediatric (12 years and older) patients with Stage IIB, IIC, or ` +
+    `III melanoma following complete resection", "metastatic non-small ` +
+    `cell lung cancer with PD-L1 expression ...", ...] — each tumor-type ` +
+    `bullet on the label becomes its own array entry.\n` +
     `- original_indication is the disease/condition for which the drug was ` +
     `FIRST approved by FDA (anchored to approval_date). This MAY draw on your ` +
     `training knowledge when the current label does not reflect the original ` +

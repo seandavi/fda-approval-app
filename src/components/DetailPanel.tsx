@@ -134,12 +134,37 @@ function IndicationsBlock({ result }: { result: DrugResult }) {
           ))}
         </ul>
       ) : (
-        <p className="text-xs text-slate-500">
-          No current indications extracted. (Layer 7 may not have run, or
-          the resolved label has no `indications_and_usage` section.)
-        </p>
+        <NoCurrentIndicationsHint result={result} />
       )}
     </section>
+  );
+}
+
+// Differentiates the reasons currentIndications could be empty so the
+// user can tell whether to retry, ignore, or report the result (#37).
+function NoCurrentIndicationsHint({ result }: { result: DrugResult }) {
+  const hasLabel = !!result.labelIndicationText?.trim();
+  if (hasLabel) {
+    // The label text WAS fetched and made it to the arbiter — the model
+    // just didn't enumerate. This is the #37 failure mode.
+    return (
+      <p className="text-xs text-slate-500">
+        The resolved label is{" "}
+        <span className="tabular-nums">
+          {result.labelIndicationText!.length.toLocaleString()}
+        </span>{" "}
+        characters of indication text (visible below), but Layer 7
+        returned no enumerated list. Likely a model omission — please
+        report this row so the prompt can be tightened.
+      </p>
+    );
+  }
+  return (
+    <p className="text-xs text-slate-500">
+      No <code className="bg-slate-100 px-1 rounded">indications_and_usage</code>{" "}
+      section was available on the resolved label (sometimes the case for
+      older NDAs whose modern label is fragmented or absent in openFDA).
+    </p>
   );
 }
 
