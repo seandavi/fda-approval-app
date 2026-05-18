@@ -22,10 +22,3 @@ export async function fetchWithBackoff(
   }
   return r;
 }
-
-// Strip api_key from a URL before recording it on a SourceHit (which is
-// rendered to the UI and exported to CSV). No-op for URLs that don't
-// carry an api_key query parameter — safe to call on every layer's URL.
-export function redactApiKey(url: string): string {
-  return url.replace(/([?&]api_key=)[^&]*/i, "$1REDACTED");
-}

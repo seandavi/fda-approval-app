@@ -78,7 +78,7 @@ describe("queryOpenFdaDrugsFda", () => {
     mock.on("/drug/drugsfda.json", FLUOROURACIL_BRAND_FIXTURE);
     mock.install();
 
-    const result = await queryOpenFdaDrugsFda("fluorouracil", "");
+    const result = await queryOpenFdaDrugsFda("fluorouracil");
 
     expect(result.status).toBe("approved");
     expect(result.applicationNumber).toBe("NDA012209");
@@ -105,7 +105,7 @@ describe("queryOpenFdaDrugsFda", () => {
     mock.on("/drug/drugsfda.json", MECBOTAMAB_WRONG_WILDCARD_FIXTURE);
     mock.install();
 
-    const result = await queryOpenFdaDrugsFda("mecbotamab vedotin", "");
+    const result = await queryOpenFdaDrugsFda("mecbotamab vedotin");
 
     expect(result.status).toBeUndefined();
     expect(result.brandName).toBeUndefined();
@@ -115,7 +115,7 @@ describe("queryOpenFdaDrugsFda", () => {
     mock.on("/drug/drugsfda.json", { meta: { results: { total: 0 } }, results: [] });
     mock.install();
 
-    await queryOpenFdaDrugsFda("mecbotamab vedotin", "");
+    await queryOpenFdaDrugsFda("mecbotamab vedotin");
 
     for (const url of mock.calledUrls()) {
       // No `mecbotamab vedotin*` raw query — must be phrase-quoted.
@@ -159,7 +159,7 @@ describe("queryOpenFdaDrugsFda", () => {
     });
     mock.install();
 
-    const result = await queryOpenFdaDrugsFda("Rybrevant Faspro", "");
+    const result = await queryOpenFdaDrugsFda("Rybrevant Faspro");
 
     expect(result.status).toBe("approved");
     expect(result.applicationNumber).toBe("BLA761433");
@@ -197,7 +197,7 @@ describe("queryOpenFdaDrugsFda", () => {
     });
     mock.install();
 
-    const result = await queryOpenFdaDrugsFda("tamoxifen", "");
+    const result = await queryOpenFdaDrugsFda("tamoxifen");
 
     expect(result.status).toBe("approved");
     expect(result.applicationNumber).toBe("NDA021807");
@@ -233,7 +233,7 @@ describe("queryOpenFdaDrugsFda", () => {
     });
     mock.install();
 
-    const result = await queryOpenFdaDrugsFda("aspirin", "");
+    const result = await queryOpenFdaDrugsFda("aspirin");
 
     expect(result.status).toBeUndefined();
   });
@@ -269,7 +269,7 @@ describe("fetchLabelIndicationByAppNum", () => {
     });
     mock.install();
 
-    const result = await fetchLabelIndicationByAppNum("BLA125514", "");
+    const result = await fetchLabelIndicationByAppNum("BLA125514");
 
     expect(result.indicationText).toBeDefined();
     expect(result.indicationText).toContain("unresectable or metastatic melanoma");
@@ -289,7 +289,7 @@ describe("fetchLabelIndicationByAppNum", () => {
     });
     mock.install();
 
-    const result = await fetchLabelIndicationByAppNum("NDA999999", "");
+    const result = await fetchLabelIndicationByAppNum("NDA999999");
 
     expect(result.indicationText).toBeUndefined();
     expect(result.sources[0].hit).toBe(false);
@@ -300,7 +300,7 @@ describe("fetchLabelIndicationByAppNum", () => {
     mock.notFound(/openfda\.application_number/);
     mock.install();
 
-    const result = await fetchLabelIndicationByAppNum("NDA000000", "");
+    const result = await fetchLabelIndicationByAppNum("NDA000000");
 
     expect(result.indicationText).toBeUndefined();
     expect(result.sources[0].hit).toBe(false);
@@ -327,7 +327,7 @@ describe("fetchLabelIndicationByAppNum", () => {
     });
     mock.install();
 
-    const result = await fetchLabelIndicationByAppNum("BLA125514", "");
+    const result = await fetchLabelIndicationByAppNum("BLA125514");
 
     expect(result.indicationText).toBeDefined();
     expect(result.indicationText).not.toMatch(/HIGHLIGHTS OF PRESCRIBING INFORMATION/);
@@ -340,7 +340,7 @@ describe("fetchLabelIndicationByAppNum", () => {
     // record the error without throwing.
     mock.install();
 
-    const result = await fetchLabelIndicationByAppNum("NDA123456", "");
+    const result = await fetchLabelIndicationByAppNum("NDA123456");
 
     expect(result.indicationText).toBeUndefined();
     expect(result.sources).toHaveLength(1);
@@ -371,7 +371,7 @@ describe("fetchLabelIndicationByAppNum", () => {
     });
     mock.install();
 
-    const result = await fetchLabelIndicationByAppNum("NDA012209", "");
+    const result = await fetchLabelIndicationByAppNum("NDA012209");
 
     expect(result.indicationText).toContain("Original NDA label");
     expect(result.indicationText).not.toContain("ANDA label");
@@ -401,7 +401,7 @@ describe("fetchLabelIndicationByAppNum", () => {
     });
     mock.install();
 
-    const result = await fetchLabelIndicationByAppNum("BLA125514", "");
+    const result = await fetchLabelIndicationByAppNum("BLA125514");
 
     expect(result.indicationText).toContain("NSCLC");
     expect(result.indicationText).toContain("urothelial");
@@ -426,7 +426,7 @@ describe("fetchLabelIndicationByAppNum", () => {
     });
     mock.install();
 
-    const result = await fetchLabelIndicationByAppNum("NDA000001", "");
+    const result = await fetchLabelIndicationByAppNum("NDA000001");
 
     expect(result.indicationText).toBeUndefined();
     expect(result.sources[0].hit).toBe(false);

@@ -8,7 +8,6 @@ import { lookupDrug, sameMolecule } from "./lookup";
 // same FetchMock infrastructure the rest of the resolver tests use.
 
 const OPTS = {
-  apiKey: "",
   enableLlmProxy: true,
   ttlDays: 7,
   useCache: false,
