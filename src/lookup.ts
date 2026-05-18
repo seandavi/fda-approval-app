@@ -169,8 +169,10 @@ function shouldOverride(
   ) {
     const pb = (result.brandName ?? "").toLowerCase().trim();
     const lb = (llm.brandName ?? "").toLowerCase().trim();
-    if (!pb || !lb) return false;
-    if (pb !== lb && !pb.includes(lb) && !lb.includes(pb)) return false;
+    // Require strict (case-insensitive) brand equality. Substring matches
+    // are too permissive — they'd let "TECENTRIQ" override
+    // "TECENTRIQ HYBREZA" because the former is contained in the latter.
+    if (!pb || !lb || pb !== lb) return false;
   }
   return true;
 }
