@@ -549,6 +549,181 @@ describe("queryOpenFdaDrugsFda — brand/generic merge (regression #13)", () => 
     expect(r.applicationNumber).toBe("NDA020896");
     expect(r.approvalDate).toBe("1998-04-30");
     expect(r.brandName).toBe("XELODA");
+    // Post-#33: Xeloda's products are Discontinued but an approved sibling
+    // ANDA exists for the same molecule (CAPECITABINE branded as itself).
+    // The molecule is still on the market — status promotes to "approved"
+    // while keeping the NDA's identity for the original-approval record.
+    expect(r.status).toBe("approved");
+  });
+
+  it("promotes status to approved when winning NDA's products are discontinued but a sibling ANDA is active (cross-query, #33 duloxetine)", async () => {
+    // Brand search returns an approved generic ANDA; generic search
+    // returns the original NDA but with all products Discontinued. The
+    // merged winner is the NDA (higher rank) — but the molecule is still
+    // approved because the sibling ANDA is active.
+    mock.on(/openfda\.brand_name:"duloxetine"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          application_number: "ANDA090778",
+          sponsor_name: "TORRENT PHARMS LTD",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20131211",
+            },
+          ],
+          products: [
+            { marketing_status: "Prescription", brand_name: "DULOXETINE" },
+          ],
+          openfda: {
+            brand_name: ["DULOXETINE"],
+            generic_name: ["DULOXETINE HYDROCHLORIDE"],
+            substance_name: ["DULOXETINE HYDROCHLORIDE"],
+          },
+        },
+      ],
+    });
+    mock.on(/openfda\.generic_name:"duloxetine"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          application_number: "NDA021427",
+          sponsor_name: "LILLY",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20040803",
+            },
+          ],
+          products: [
+            { marketing_status: "Discontinued", brand_name: "CYMBALTA" },
+          ],
+          openfda: {
+            brand_name: ["CYMBALTA"],
+            generic_name: ["DULOXETINE HYDROCHLORIDE"],
+            substance_name: ["DULOXETINE HYDROCHLORIDE"],
+          },
+        },
+      ],
+    });
+    mock.on("/drug/label.json", EMPTY_LABEL);
+    mock.on("/drug/ndc.json", EMPTY_NDC);
+    mock.install();
+
+    const r = await lookupDrug("duloxetine", {
+      ...OPTS,
+      enableLlmProxy: false,
+    });
+
+    expect(r.applicationNumber).toBe("NDA021427");
+    expect(r.approvalDate).toBe("2004-08-03");
+    expect(r.brandName).toBe("CYMBALTA");
+    expect(r.status).toBe("approved");
+  });
+
+  it("promotes status to approved when winning NDA is discontinued but a sibling ANDA in the same query is active (within-query, #33)", async () => {
+    // Both NDA (discontinued) and ANDA (approved) hit the same generic-
+    // name query. NDA wins on rank — without the within-query fix, status
+    // would be reported as discontinued.
+    mock.on(/openfda\.brand_name:"foodrug"/, EMPTY_FDA);
+    mock.on(/openfda\.generic_name:"foodrug"/, {
+      meta: { results: { total: 2 } },
+      results: [
+        {
+          application_number: "NDA111111",
+          sponsor_name: "ORIGINATOR INC",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20000101",
+            },
+          ],
+          products: [
+            { marketing_status: "Discontinued", brand_name: "FOOBRAND" },
+          ],
+          openfda: {
+            brand_name: ["FOOBRAND"],
+            generic_name: ["FOODRUG"],
+            substance_name: ["FOODRUG"],
+          },
+        },
+        {
+          application_number: "ANDA222222",
+          sponsor_name: "GENERIC INC",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20150101",
+            },
+          ],
+          products: [
+            { marketing_status: "Prescription", brand_name: "FOODRUG" },
+          ],
+          openfda: {
+            brand_name: ["FOODRUG"],
+            generic_name: ["FOODRUG"],
+            substance_name: ["FOODRUG"],
+          },
+        },
+      ],
+    });
+    mock.on("/drug/label.json", EMPTY_LABEL);
+    mock.on("/drug/ndc.json", EMPTY_NDC);
+    mock.install();
+
+    const r = await lookupDrug("foodrug", {
+      ...OPTS,
+      enableLlmProxy: false,
+    });
+
+    expect(r.applicationNumber).toBe("NDA111111");
+    expect(r.approvalDate).toBe("2000-01-01");
+    expect(r.status).toBe("approved");
+  });
+
+  it("keeps status discontinued when NO sibling application is approved (no false promotion)", async () => {
+    // Only the discontinued NDA exists. No sibling — status stays
+    // discontinued. (Guards against an over-eager promotion that would
+    // mark obsolete molecules as approved.)
+    mock.on(/openfda\.brand_name:"obsolete"/, EMPTY_FDA);
+    mock.on(/openfda\.generic_name:"obsolete"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          application_number: "NDA999999",
+          sponsor_name: "WITHDRAWN INC",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "19800101",
+            },
+          ],
+          products: [
+            { marketing_status: "Discontinued", brand_name: "OBSOLETE" },
+          ],
+          openfda: {
+            brand_name: ["OBSOLETE"],
+            generic_name: ["OBSOLETE"],
+            substance_name: ["OBSOLETE"],
+          },
+        },
+      ],
+    });
+    mock.on("/drug/label.json", EMPTY_LABEL);
+    mock.on("/drug/ndc.json", EMPTY_NDC);
+    mock.install();
+
+    const r = await lookupDrug("obsolete", {
+      ...OPTS,
+      enableLlmProxy: false,
+    });
+
     expect(r.status).toBe("discontinued");
   });
 });
