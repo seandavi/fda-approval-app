@@ -146,7 +146,7 @@ variables**:
 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` | yes | — | Full service-account JSON, stringified. Without this the function returns 503 and Layer 7 is a quiet no-op. |
 | `GCP_PROJECT_ID` | no | parsed from JSON | Override if the JSON's `project_id` isn't the one you want billed. |
 | `VERTEX_REGION` | no | `global` | Gemini 3.x only lives at the global endpoint. |
-| `VERTEX_MODEL` | no | `gemini-3.1-flash-lite` | Bump to `gemini-3.1-pro-preview` for harder cases. |
+| `VERTEX_MODEL` | no | `gemini-3.1-flash` | Was `gemini-3.1-flash-lite` pre-#40/#41; Flash-Lite was unreliable at enumerating indications on big oncology labels (Keytruda's 23 KB label, ~25 indications). Bump to `gemini-3.1-pro-preview` for harder cases; drop back to `gemini-3.1-flash-lite` if cost dominates correctness for your workload. |
 
 Smoke-test once deployed:
 
