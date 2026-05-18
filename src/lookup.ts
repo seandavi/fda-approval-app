@@ -116,13 +116,15 @@ function sameMolecule(
 }
 
 // Detect when the user's query is asking about a specific branded product
-// rather than a molecule. The query is "brand-specific" when it textually
-// matches the pipeline brand_name AND the brand_name is a distinct
-// commercial identity — not just the generic name spelled out in the
-// brand field (which is how openFDA labels ANDAs like CYTARABINE,
-// ERLOTINIB, VINBLASTINE SULFATE). A query that matches the generic
-// (e.g. "tamoxifen" against generic="TAMOXIFEN CITRATE") is treated as a
-// molecule query even if it superficially overlaps with the brand_name.
+// rather than a molecule. Brand-specificity is strict: the query must
+// match the pipeline brand_name *exactly* (case-insensitive). Substring
+// matches are too permissive — they'd treat "Tecentriq Hybreza" (2024
+// subcutaneous co-formulation) and "Lynparza" (whose brand is exactly
+// "LYNPARZA") the same way, then accept an LLM "correction" to the IV
+// monotherapy "Tecentriq" because brand substring-overlaps. Queries that
+// match the generic name are never brand-specific even if they happen to
+// also equal the brand_name field (which openFDA fills with the generic
+// for ANDAs: brand="CYTARABINE", generic="CYTARABINE").
 function queryIsBrandSpecific(
   query: string,
   pipelineBrand: string | undefined,
@@ -132,13 +134,11 @@ function queryIsBrandSpecific(
   const q = query.toLowerCase().trim();
   const b = pipelineBrand.toLowerCase().trim();
   if (q.length < 4 || b.length < 4) return false;
-  // If the query matches the generic name (exact or substring), the user is
-  // asking about the molecule — never treat as brand-specific.
   if (pipelineGeneric) {
     const g = pipelineGeneric.toLowerCase().trim();
     if (g === q || g.includes(q) || q.includes(g)) return false;
   }
-  return b.includes(q) || q.includes(b);
+  return q === b;
 }
 
 function shouldOverride(
