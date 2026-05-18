@@ -151,12 +151,15 @@ function userPrompt(name: string, pipeline?: PipelineFinding): string {
     `label text is provided is a bug — extract the indications. Set to ` +
     `null ONLY when no label text was provided. Never fall back to your ` +
     `training knowledge for this field.\n` +
-    `  Example: for pembrolizumab (Keytruda) the array might include ` +
-    `["unresectable or metastatic melanoma", "adjuvant treatment of adult ` +
-    `and pediatric (12 years and older) patients with Stage IIB, IIC, or ` +
-    `III melanoma following complete resection", "metastatic non-small ` +
-    `cell lung cancer with PD-L1 expression ...", ...] — each tumor-type ` +
-    `bullet on the label becomes its own array entry.\n` +
+    `  Example (truncated for brevity; the real array would continue with ` +
+    `every remaining indication from the label): for pembrolizumab the ` +
+    `array starts ["unresectable or metastatic melanoma", "adjuvant ` +
+    `treatment of adult and pediatric (12 years and older) patients with ` +
+    `Stage IIB, IIC, or III melanoma following complete resection", ` +
+    `"metastatic non-small cell lung cancer in combination with ` +
+    `pemetrexed and platinum chemotherapy"] — each tumor-type bullet on ` +
+    `the label becomes its own array entry; continue enumerating until ` +
+    `you have captured all of them.\n` +
     `- original_indication is the disease/condition for which the drug was ` +
     `FIRST approved by FDA (anchored to approval_date). This MAY draw on your ` +
     `training knowledge when the current label does not reflect the original ` +
@@ -389,6 +392,34 @@ export default async (req: Request): Promise<Response> => {
     // a `content: [{type:"text", text:...}]` shape. Mirror that so the
     // proxy/direct paths share parsing code on the client side.
     const text = response.text ?? "";
+
+    // Observability: the prompt instructs the model to return a non-empty
+    // `current_indications` array whenever label text is provided, but the
+    // response schema permits null (it has to, for the no-label path).
+    // When the model omits enumeration despite having a real label,
+    // surface it in function logs so we can spot the pattern and tune the
+    // prompt. (#37, post-review)
+    const hadLabel = !!pipelineFinding?.labelIndicationText &&
+      pipelineFinding.labelIndicationText.length > 500;
+    if (hadLabel) {
+      try {
+        const parsed = JSON.parse(text) as { current_indications?: unknown };
+        const inds = parsed.current_indications;
+        const isEmpty =
+          inds == null || (Array.isArray(inds) && inds.length === 0);
+        if (isEmpty) {
+          console.warn(
+            `[llm-lookup] model returned empty current_indications despite ` +
+              `${pipelineFinding!.labelIndicationText!.length}-char label ` +
+              `(drug: ${JSON.stringify(drugName)})`
+          );
+        }
+      } catch {
+        // Parse failures already surface as client-side source detail —
+        // no need to double-log here.
+      }
+    }
+
     return json({
       model: cfg.model,
       region: cfg.region,
