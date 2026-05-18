@@ -25,12 +25,14 @@ const DEFAULT_REGION = process.env.VERTEX_REGION ?? "global";
 const DEFAULT_MODEL = process.env.VERTEX_MODEL ?? "gemini-3.1-flash-lite";
 // Caps the *generated* (output + thinking) token budget per call. Gemini 3
 // preview uses thinking tokens that count against this even when the final
-// JSON is tiny. Bumped from 2048 to leave reasoning headroom for prompts
-// that now include up to MAX_LABEL_CHARS of grounding text, and to fit
-// response payloads that can include 25+ verbatim indication strings on
-// big-tent oncology drugs (Keytruda, Opdivo). Input/context size is bounded
-// separately by MAX_LABEL_CHARS + MAX_DRUG_NAME_LEN, not by this constant.
-const MAX_TOKENS = 4096;
+// JSON is tiny — and the thinking budget grows with prompt complexity, so
+// the 24 KB label grounding payload can eat a lot of it before the model
+// even starts emitting JSON. Bumped to 8192 after #37 (Keytruda enumeration
+// dropped indications entirely on a 23 KB label) to leave enough output
+// headroom for 25+ verbatim indication strings on big-tent oncology drugs.
+// Input/context size is bounded separately by MAX_LABEL_CHARS +
+// MAX_DRUG_NAME_LEN, not by this constant.
+const MAX_TOKENS = 8192;
 const MAX_DRUG_NAME_LEN = 200;
 // Cap on label `indications_and_usage` text included in the prompt.
 // Real labels for big-tent oncology drugs (Keytruda, Opdivo) run 15-20 KB,
@@ -138,12 +140,26 @@ function userPrompt(name: string, pipeline?: PipelineFinding): string {
     `- approval_date must be the FIRST FDA approval, even if decades old.\n` +
     `- If unsure of exact date or application number, set them to null and ` +
     `lower confidence — do not guess.\n` +
-    `- current_indications must be drawn FROM THE PROVIDED LABEL TEXT ONLY. ` +
-    `Enumerate every distinct indication. Do not summarize, do not deduplicate ` +
-    `by therapy area, do not normalize phrasing. Use verbatim wording from ` +
-    `the label, including biomarker requirements, lines of therapy, and ` +
-    `combination partners. If no label text was provided, set current_indications ` +
-    `to null — do NOT fall back to your training knowledge for this field.\n` +
+    `- current_indications: when label text IS provided, this field MUST be ` +
+    `a non-empty array. Enumerate EVERY distinct indication on the label — ` +
+    `oncology labels routinely list 15-25 indications across tumor types ` +
+    `and you must include all of them, not just the headline one. Do not ` +
+    `summarize, do not deduplicate by therapy area, do not normalize ` +
+    `phrasing. Use verbatim wording from the label, including biomarker ` +
+    `requirements, lines of therapy, age cohorts, and combination partners. ` +
+    `Each indication is its own array entry. Setting this to null when ` +
+    `label text is provided is a bug — extract the indications. Set to ` +
+    `null ONLY when no label text was provided. Never fall back to your ` +
+    `training knowledge for this field.\n` +
+    `  Example (truncated for brevity; the real array would continue with ` +
+    `every remaining indication from the label): for pembrolizumab the ` +
+    `array starts ["unresectable or metastatic melanoma", "adjuvant ` +
+    `treatment of adult and pediatric (12 years and older) patients with ` +
+    `Stage IIB, IIC, or III melanoma following complete resection", ` +
+    `"metastatic non-small cell lung cancer in combination with ` +
+    `pemetrexed and platinum chemotherapy"] — each tumor-type bullet on ` +
+    `the label becomes its own array entry; continue enumerating until ` +
+    `you have captured all of them.\n` +
     `- original_indication is the disease/condition for which the drug was ` +
     `FIRST approved by FDA (anchored to approval_date). This MAY draw on your ` +
     `training knowledge when the current label does not reflect the original ` +
@@ -376,6 +392,34 @@ export default async (req: Request): Promise<Response> => {
     // a `content: [{type:"text", text:...}]` shape. Mirror that so the
     // proxy/direct paths share parsing code on the client side.
     const text = response.text ?? "";
+
+    // Observability: the prompt instructs the model to return a non-empty
+    // `current_indications` array whenever label text is provided, but the
+    // response schema permits null (it has to, for the no-label path).
+    // When the model omits enumeration despite having a real label,
+    // surface it in function logs so we can spot the pattern and tune the
+    // prompt. (#37, post-review)
+    const hadLabel = !!pipelineFinding?.labelIndicationText &&
+      pipelineFinding.labelIndicationText.length > 500;
+    if (hadLabel) {
+      try {
+        const parsed = JSON.parse(text) as { current_indications?: unknown };
+        const inds = parsed.current_indications;
+        const isEmpty =
+          inds == null || (Array.isArray(inds) && inds.length === 0);
+        if (isEmpty) {
+          console.warn(
+            `[llm-lookup] model returned empty current_indications despite ` +
+              `${pipelineFinding!.labelIndicationText!.length}-char label ` +
+              `(drug: ${JSON.stringify(drugName)})`
+          );
+        }
+      } catch {
+        // Parse failures already surface as client-side source detail —
+        // no need to double-log here.
+      }
+    }
+
     return json({
       model: cfg.model,
       region: cfg.region,
