@@ -89,6 +89,11 @@ export function ResultRow({ result, defaultExpanded }: Props) {
                     {" "}· Marketing: <code>{result.marketingCategory}</code>
                   </>
                 )}
+                {result.resolvedVia === "llm" && result.llmConfidence && (
+                  <>
+                    {" "}· LLM confidence: <code>{result.llmConfidence}</code>
+                  </>
+                )}
               </div>
               {result.status !== "pending" && (
                 <a
@@ -142,6 +147,12 @@ export function ResultRow({ result, defaultExpanded }: Props) {
                 ))}
               </tbody>
             </table>
+            {result.resolvedVia === "llm" && result.llmRationale && (
+              <div className="mt-3 rounded-md bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-xs text-amber-900">
+                <span className="font-semibold">LLM rationale:</span>{" "}
+                {result.llmRationale}
+              </div>
+            )}
           </td>
         </tr>
       )}

@@ -98,6 +98,13 @@ export function App() {
       parsedNames,
       {
         apiKey: settings.openfdaApiKey,
+        // The /api/llm-lookup Netlify Function is only present on the
+        // production deploy. Vite dev (no `netlify dev`) would 404 on it,
+        // so we gate proxy use to PROD by default — override with
+        // VITE_ENABLE_LLM_PROXY=true if running `netlify dev` locally.
+        enableLlmProxy:
+          import.meta.env.PROD ||
+          import.meta.env.VITE_ENABLE_LLM_PROXY === "true",
         ttlDays: settings.cacheTtlDays,
         useCache: settings.cacheTtlDays > 0,
       },

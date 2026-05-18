@@ -14,7 +14,8 @@ export type ResolvedVia =
   | "openfda_ndc"
   | "rxnorm"
   | "chembl"
-  | "clinicaltrials";
+  | "clinicaltrials"
+  | "llm";
 
 export interface SourceHit {
   api: string;
@@ -36,6 +37,8 @@ export interface DrugResult {
   approvalDate?: string;
   sponsor?: string;
   marketingCategory?: string; // populated for NDC-resolved results (e.g. "OTC MONOGRAPH DRUG")
+  llmConfidence?: "high" | "medium" | "low"; // populated when LLM fallback resolves a result
+  llmRationale?: string;
   sources: SourceHit[];
   cached: boolean;
   lookedUpAt: string;

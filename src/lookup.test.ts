@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FetchMock } from "./test/fetchMock";
 import { lookupDrug } from "./lookup";
 
-const OPTS = { apiKey: "", ttlDays: 7, useCache: false };
+const OPTS = {
+  apiKey: "",
+  enableLlmProxy: false,
+  ttlDays: 7,
+  useCache: false,
+};
 
 const EMPTY_FDA = { meta: { results: { total: 0 } }, results: [] };
 const EMPTY_NDC = { meta: { results: { total: 0 } }, results: [] };
