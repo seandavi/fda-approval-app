@@ -263,17 +263,38 @@ async function queryDrugsFda(
   return { sources };
 }
 
+// Pick whichever of two candidate partials represents a better original
+// approval: prefer NDA/BLA over ANDA, then earlier approval date. Mirrors
+// the per-query ranking in interpretDrugsFda — picking the better of two
+// best-of-query results is mathematically equivalent to running the
+// ranker on the merged candidate list, since both rules are monotone.
+function preferEarlierOriginal(
+  a: OpenFdaPartial,
+  b: OpenFdaPartial
+): OpenFdaPartial {
+  if (!a.status) return b;
+  if (!b.status) return a;
+  const ra = appTypeRank(a.applicationNumber);
+  const rb = appTypeRank(b.applicationNumber);
+  if (ra !== rb) return ra > rb ? a : b;
+  const da = a.approvalDate ?? "9999-99-99";
+  const db = b.approvalDate ?? "9999-99-99";
+  return da.localeCompare(db) <= 0 ? a : b;
+}
+
 export async function queryOpenFdaDrugsFda(
   name: string,
   apiKey: string
 ): Promise<OpenFdaPartial> {
+  // Always run both brand and generic searches and pick the stronger
+  // result. Pre-fix this short-circuited at brand: "capecitabine" matched
+  // generic ANDAs labeled brand_name=CAPECITABINE and never saw Xeloda
+  // NDA020896 (1998) sitting in the generic-search result set (#13).
   const byBrand = await queryDrugsFda("brand_name", name, apiKey);
-  if (byBrand.status) return byBrand;
   const byGeneric = await queryDrugsFda("generic_name", name, apiKey);
-  return {
-    ...byGeneric,
-    sources: [...byBrand.sources, ...byGeneric.sources],
-  };
+  const combinedSources = [...byBrand.sources, ...byGeneric.sources];
+  const winner = preferEarlierOriginal(byBrand, byGeneric);
+  return { ...winner, sources: combinedSources };
 }
 
 export async function queryOpenFdaLabel(

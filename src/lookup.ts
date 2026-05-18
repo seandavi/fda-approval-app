@@ -8,7 +8,7 @@ import {
 } from "./normalize";
 import { queryChembl } from "./api/chembl";
 import { queryClinicalTrials } from "./api/clinicaltrials";
-import { queryLLM } from "./api/llm";
+import { queryLLM, type LLMPartial } from "./api/llm";
 import { queryOpenFdaNdc, type NdcPartial } from "./api/ndc";
 import {
   queryOpenFdaDrugsFda,
@@ -91,6 +91,90 @@ async function runRxNorm(
     };
   }
   return null;
+}
+
+// Decide whether the LLM's answer is strong enough to override the
+// deterministic pipeline's finding. Conservative on purpose: the model
+// confidently fabricates application numbers in some cases (e.g. claiming
+// an NDA for an OTC monograph drug), so we only override when:
+//   - the model explicitly said it was correcting,
+//   - it returned high confidence,
+//   - its approval date is at least a year earlier than the pipeline's,
+//   - the molecule appears to match (same generic_name, allowing salt
+//     forms and trivial casing differences).
+function sameMolecule(
+  pipelineGeneric: string | undefined,
+  llmGeneric: string | undefined
+): boolean {
+  if (!pipelineGeneric || !llmGeneric) return true; // can't disprove → allow
+  const a = pipelineGeneric.toLowerCase();
+  const b = llmGeneric.toLowerCase();
+  if (a === b) return true;
+  // Salt-form / casing forgiveness: "tamoxifen" vs "tamoxifen citrate",
+  // "doxorubicin hydrochloride" vs "doxorubicin", etc.
+  return a.startsWith(b) || b.startsWith(a) || a.includes(b) || b.includes(a);
+}
+
+// Detect when the user's query is asking about a specific branded product
+// rather than a molecule. Brand-specificity is strict: the query must
+// match the pipeline brand_name *exactly* (case-insensitive). Substring
+// matches are too permissive — they'd treat "Tecentriq Hybreza" (2024
+// subcutaneous co-formulation) and "Lynparza" (whose brand is exactly
+// "LYNPARZA") the same way, then accept an LLM "correction" to the IV
+// monotherapy "Tecentriq" because brand substring-overlaps. Queries that
+// match the generic name are never brand-specific even if they happen to
+// also equal the brand_name field (which openFDA fills with the generic
+// for ANDAs: brand="CYTARABINE", generic="CYTARABINE").
+function queryIsBrandSpecific(
+  query: string,
+  pipelineBrand: string | undefined,
+  pipelineGeneric: string | undefined
+): boolean {
+  if (!pipelineBrand) return false;
+  const q = query.toLowerCase().trim();
+  const b = pipelineBrand.toLowerCase().trim();
+  if (q.length < 4 || b.length < 4) return false;
+  if (pipelineGeneric) {
+    const g = pipelineGeneric.toLowerCase().trim();
+    if (g === q || g.includes(q) || q.includes(g)) return false;
+  }
+  return q === b;
+}
+
+function shouldOverride(
+  result: DrugResult,
+  llm: LLMPartial
+): boolean {
+  if (llm.agreement !== "correct") return false;
+  if (llm.confidence !== "high") return false;
+  if (!llm.approvalDate || !result.approvalDate) return false;
+  // LLM date must be strictly earlier.
+  if (llm.approvalDate >= result.approvalDate) return false;
+  // At least one full calendar year earlier — avoid bouncing on noise.
+  const py = parseInt(result.approvalDate.slice(0, 4), 10);
+  const ly = parseInt(llm.approvalDate.slice(0, 4), 10);
+  if (!Number.isFinite(py) || !Number.isFinite(ly)) return false;
+  if (py - ly < 1) return false;
+  if (!sameMolecule(result.genericName, llm.genericName)) return false;
+  // Brand-specific queries (e.g. "Rybrevant Faspro", "Lynparza") only get
+  // overridden if the LLM's earlier approval is for the *same* brand —
+  // otherwise we'd swap in a sibling product with the same molecule but a
+  // different formulation/route.
+  if (
+    queryIsBrandSpecific(
+      result.normalizedName,
+      result.brandName,
+      result.genericName
+    )
+  ) {
+    const pb = (result.brandName ?? "").toLowerCase().trim();
+    const lb = (llm.brandName ?? "").toLowerCase().trim();
+    // Require strict (case-insensitive) brand equality. Substring matches
+    // are too permissive — they'd let "TECENTRIQ" override
+    // "TECENTRIQ HYBREZA" because the former is contained in the latter.
+    if (!pb || !lb || pb !== lb) return false;
+  }
+  return true;
 }
 
 function applyOpenFda(result: DrugResult, partial: OpenFdaPartial): void {
@@ -220,36 +304,81 @@ export async function lookupDrug(
       }
     }
 
-    // LLM fallback (#13): many drugs approved before openFDA's online data
-    // window (1939 nominally, but original NDAs for many 1960s–2000s drugs
-    // simply aren't there) cannot be resolved by the API layers above.
-    // When the deployment has the /api/llm-lookup proxy enabled we ask
-    // Gemini (via Vertex AI) for the original approval. Only runs if the
-    // prior layers failed entirely — we don't second-guess a real FDA hit
-    // with model output.
-    if (!resolved && opts.enableLlmProxy) {
+    if (!resolved) result.status = "not_found";
+
+    // Layer 7: invoke the LLM as an arbiter, not just a last-resort fallback.
+    //
+    // We pass the deterministic-pipeline candidate (if any) to the model and
+    // ask it to confirm or correct. This catches the dominant failure mode
+    // in #13 — openFDA returns *some* match (a later ANDA or reformulation
+    // NDA) so the pipeline short-circuits, but the original innovator NDA
+    // is missing from openFDA entirely (Doxorubicin 1974, Tamoxifen 1977,
+    // Velban 1965, etc.).
+    //
+    // Authoritative non-NDA statuses from the NDC layer (otc_monograph,
+    // unapproved_marketed) are not arbitrable — the LLM doesn't see them.
+    if (
+      opts.enableLlmProxy &&
+      result.status !== "otc_monograph" &&
+      result.status !== "unapproved_marketed"
+    ) {
+      const pipelineFinding =
+        result.status === "approved" || result.status === "discontinued"
+          ? {
+              status: result.status,
+              applicationNumber: result.applicationNumber,
+              applicationType: result.applicationType,
+              approvalDate: result.approvalDate,
+              brandName: result.brandName,
+              genericName: result.genericName,
+              resolvedVia: result.resolvedVia,
+            }
+          : undefined;
       const llm = await queryLLM(normalized, {
         enableProxy: opts.enableLlmProxy,
+        pipelineFinding,
       });
       result.sources.push(...llm.sources);
-      if (llm.status && llm.status !== "not_found") {
-        result.status = llm.status;
-        result.resolvedVia = "llm";
-        if (llm.brandName) result.brandName = llm.brandName;
-        if (llm.genericName) result.genericName = llm.genericName;
-        if (llm.applicationNumber)
+      if (llm.agreement) result.llmAgreement = llm.agreement;
+      if (llm.confidence) result.llmConfidence = llm.confidence;
+      if (llm.rationale) result.llmRationale = llm.rationale;
+
+      const llmHasAnswer =
+        !!llm.status && llm.status !== "not_found";
+
+      if (pipelineFinding && llmHasAnswer) {
+        if (shouldOverride(result, llm)) {
+          // Preserve the pipeline's finding for the audit trail / CSV.
+          result.pipelineApplicationNumber = result.applicationNumber;
+          result.pipelineApprovalDate = result.approvalDate;
+          result.pipelineResolvedVia = result.resolvedVia;
+          result.status = llm.status!;
           result.applicationNumber = llm.applicationNumber;
-        if (llm.applicationType) result.applicationType = llm.applicationType;
-        if (llm.approvalDate) result.approvalDate = llm.approvalDate;
-        if (llm.sponsor) result.sponsor = llm.sponsor;
-        if (llm.confidence) result.llmConfidence = llm.confidence;
-        if (llm.rationale) result.llmRationale = llm.rationale;
-        emitLayerHit(7, result.normalizedName);
-        resolved = true;
+          result.applicationType = llm.applicationType;
+          result.approvalDate = llm.approvalDate;
+          result.brandName = llm.brandName ?? result.brandName;
+          result.genericName = llm.genericName ?? result.genericName;
+          result.sponsor = llm.sponsor ?? result.sponsor;
+          result.resolvedVia = "llm";
+          emitLayerHit(7, result.normalizedName);
+        }
+      } else if (!pipelineFinding && llmHasAnswer) {
+        // Nothing else found this drug — accept the LLM if it's
+        // high-confidence. Same rule as the old last-resort fallback.
+        if (llm.confidence === "high") {
+          result.status = llm.status!;
+          result.resolvedVia = "llm";
+          if (llm.brandName) result.brandName = llm.brandName;
+          if (llm.genericName) result.genericName = llm.genericName;
+          if (llm.applicationNumber)
+            result.applicationNumber = llm.applicationNumber;
+          if (llm.applicationType) result.applicationType = llm.applicationType;
+          if (llm.approvalDate) result.approvalDate = llm.approvalDate;
+          if (llm.sponsor) result.sponsor = llm.sponsor;
+          emitLayerHit(7, result.normalizedName);
+        }
       }
     }
-
-    if (!resolved) result.status = "not_found";
   } catch (e) {
     result.status = "error";
     result.sources.push({
