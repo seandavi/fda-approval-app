@@ -11,28 +11,43 @@
 // Optional:
 //   GCP_PROJECT_ID    -- Vertex project (defaults to project_id from the JSON)
 //   VERTEX_REGION     -- default "global" (Gemini 3.x only lives at the global endpoint)
-//   VERTEX_MODEL      -- default "gemini-3.1-flash-lite"
-//                        Bump to gemini-3.1-pro-preview / future GA via env var.
+//   VERTEX_MODEL      -- default "gemini-3.1-pro-preview"
+//                        Was "gemini-3.1-flash-lite" pre-#40/#41; Flash-Lite
+//                        unreliably enumerated indications on big oncology
+//                        labels (returned null current_indications or empty
+//                        response on Keytruda's 23 KB label). Vertex AI's
+//                        3.1 family currently ships only Lite and Pro
+//                        tiers — no middle Flash — so we default to Pro.
+//                        Drop back to flash-lite via env var if cost
+//                        dominates correctness for the deployment.
 //
 // Cost controls baked in:
 //   - max_output_tokens hard-capped server-side.
+//   - thinking_budget hard-capped server-side so reasoning can't crowd out
+//     the JSON output budget on long-prompt cases (#41 empty response).
 //   - model overrides from the client are ignored — the server picks.
 //   - per-IP token-bucket rate limit (best-effort; resets on cold-start).
 
 import { GoogleGenAI, type Content } from "@google/genai";
 
 const DEFAULT_REGION = process.env.VERTEX_REGION ?? "global";
-const DEFAULT_MODEL = process.env.VERTEX_MODEL ?? "gemini-3.1-flash-lite";
+const DEFAULT_MODEL = process.env.VERTEX_MODEL ?? "gemini-3.1-pro-preview";
 // Caps the *generated* (output + thinking) token budget per call. Gemini 3
-// preview uses thinking tokens that count against this even when the final
-// JSON is tiny — and the thinking budget grows with prompt complexity, so
-// the 24 KB label grounding payload can eat a lot of it before the model
-// even starts emitting JSON. Bumped to 8192 after #37 (Keytruda enumeration
-// dropped indications entirely on a 23 KB label) to leave enough output
-// headroom for 25+ verbatim indication strings on big-tent oncology drugs.
+// thinking tokens count against this, and the budget can grow with prompt
+// complexity — a 24 KB label grounding payload was eating the entire
+// budget before the model emitted JSON on Keytruda-class drugs (#41 empty
+// response). Bumped from 8192 → 12288 alongside an explicit
+// THINKING_BUDGET cap so reasoning can't starve the output phase.
 // Input/context size is bounded separately by MAX_LABEL_CHARS +
 // MAX_DRUG_NAME_LEN, not by this constant.
-const MAX_TOKENS = 8192;
+const MAX_TOKENS = 12_288;
+// Cap on thinking tokens within MAX_TOKENS. -1 would let the model use as
+// many as it wants; 0 would disable thinking entirely (we want some
+// reasoning for the verify-or-correct decision). 4096 is a balance:
+// enough for the model to read the label and decide what to enumerate,
+// while leaving ~8000 tokens of room for the JSON output (25 indications
+// × ~25 tokens each is ~625; plus the other fields ~200; plenty of slack).
+const THINKING_BUDGET = 4096;
 const MAX_DRUG_NAME_LEN = 200;
 // Cap on label `indications_and_usage` text included in the prompt.
 // Real labels for big-tent oncology drugs (Keytruda, Opdivo) run 15-20 KB,
@@ -168,42 +183,60 @@ function userPrompt(name: string, pipeline?: PipelineFinding): string {
   return base + context + labelBlock + schema;
 }
 
-// JSON schema we ask Gemini to produce. Using response_schema constrains
-// decoding so we don't have to defensively unwrap markdown fences.
-const RESPONSE_SCHEMA = {
-  type: "object",
-  properties: {
-    agreement: {
-      type: "string",
-      enum: ["confirm", "correct", "unknown"],
+// JSON response schema sent to Gemini. Conditionally tightened when the
+// pipeline provided label text — the prompt already says
+// current_indications MUST be a non-empty array in that case, but the
+// model is happy to ignore prompts on big oncology labels (#40, #41).
+// Switching the schema to require + minItems:1 forces Vertex to reject
+// any response that doesn't comply, so the model is structurally
+// compelled to enumerate. When no label is provided, the field stays
+// nullable so the no-grounding path still works.
+function buildResponseSchema(hasLabelText: boolean): object {
+  const indicationsField = hasLabelText
+    ? {
+        type: "array",
+        items: { type: "string" },
+        minItems: 1,
+        // not nullable
+      }
+    : {
+        type: "array",
+        items: { type: "string" },
+        nullable: true,
+      };
+  const required = [
+    "agreement",
+    "status",
+    "confidence",
+    "rationale",
+    ...(hasLabelText ? ["current_indications"] : []),
+  ];
+  return {
+    type: "object",
+    properties: {
+      agreement: { type: "string", enum: ["confirm", "correct", "unknown"] },
+      status: {
+        type: "string",
+        enum: ["approved", "discontinued", "otc_monograph", "not_found"],
+      },
+      brand_name: { type: "string", nullable: true },
+      generic_name: { type: "string", nullable: true },
+      application_number: { type: "string", nullable: true },
+      application_type: {
+        type: "string",
+        enum: ["NDA", "BLA", "ANDA"],
+        nullable: true,
+      },
+      approval_date: { type: "string", nullable: true },
+      sponsor: { type: "string", nullable: true },
+      current_indications: indicationsField,
+      original_indication: { type: "string", nullable: true },
+      confidence: { type: "string", enum: ["high", "medium", "low"] },
+      rationale: { type: "string" },
     },
-    status: {
-      type: "string",
-      enum: ["approved", "discontinued", "otc_monograph", "not_found"],
-    },
-    brand_name: { type: "string", nullable: true },
-    generic_name: { type: "string", nullable: true },
-    application_number: { type: "string", nullable: true },
-    application_type: {
-      type: "string",
-      enum: ["NDA", "BLA", "ANDA"],
-      nullable: true,
-    },
-    approval_date: { type: "string", nullable: true },
-    sponsor: { type: "string", nullable: true },
-    current_indications: {
-      type: "array",
-      items: { type: "string" },
-      nullable: true,
-    },
-    original_indication: { type: "string", nullable: true },
-    confidence: { type: "string", enum: ["high", "medium", "low"] },
-    rationale: { type: "string" },
-  },
-  // Leave indications optional so prior arbiter regression fixtures
-  // (#13/#18) continue to validate without a flag day.
-  required: ["agreement", "status", "confidence", "rationale"],
-} as const;
+    required,
+  };
+}
 
 // Token bucket per client IP. Lives in module scope so it survives within a
 // single function instance; cold starts reset it. Good enough as a cost
@@ -377,14 +410,26 @@ export default async (req: Request): Promise<Response> => {
         parts: [{ text: userPrompt(drugName, pipelineFinding) }],
       },
     ];
+    const hasLabelText =
+      !!pipelineFinding?.labelIndicationText &&
+      pipelineFinding.labelIndicationText.length > 100;
     const response = await cfg.client.models.generateContent({
       model: cfg.model,
       contents,
       config: {
         systemInstruction: SYSTEM_PROMPT,
         maxOutputTokens: MAX_TOKENS,
+        thinkingConfig: {
+          // Cap reasoning so it can't starve the JSON output phase on
+          // long-prompt cases — see #41 (empty response on Keytruda's
+          // 23 KB label) and the THINKING_BUDGET comment.
+          thinkingBudget: THINKING_BUDGET,
+        },
         responseMimeType: "application/json",
-        responseSchema: RESPONSE_SCHEMA,
+        // Schema is tightened when label text was provided so the model
+        // can't return a null/empty current_indications array even when
+        // it would prefer to skip enumeration on a long label (#40, #41).
+        responseSchema: buildResponseSchema(hasLabelText),
         temperature: 0,
       },
     });
