@@ -51,6 +51,10 @@ vast majority of drugs).
   and pipe-delimited `currentIndications`. Always-quote RFC 4180 + UTF-8
   BOM + CRLF makes it open cleanly in Excel on Windows.
 - **Local cache** with 7-day TTL (configurable) keyed by normalized name.
+  Append `?clear_cache=1` to any URL to drop every cached result on load
+  (e.g. `https://fda-approvals.cancerdatasci.org/?clear_cache=1`) —
+  handy for sharing a "rerun from scratch" link after a resolver change
+  without explaining browser DevTools. Settings are preserved.
 - **In-app feedback** — header **Feedback** link and a per-result
   **Report** action open pre-filled GitHub issues (with the full SourceHit
   trail for wrong-result reports). One-click for users with a GitHub

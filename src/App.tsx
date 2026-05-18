@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { trackEvent } from "./analytics";
+import { clearCache } from "./cache";
 import { AboutPage } from "./components/AboutPage";
 import { type InputMode } from "./components/InputPanel";
 import { LandingPage } from "./components/LandingPage";
@@ -45,6 +46,37 @@ function saveSettings(s: AppSettings): void {
   }
 }
 
+// Shareable cache-reset URL: `?clear_cache=1` (or `?clear_cache` with no
+// value) drops every cached result on first load. Used when a deploy
+// changes resolver behavior and we need users to evict stale answers
+// without explaining how to navigate browser DevTools. The settings key
+// is preserved — only result cache entries (clearCache filters by
+// prefix) are cleared.
+//
+// Runs at module-load time, NOT inside App. React 18 strict mode
+// double-invokes `useState` lazy initializers (and any effect), and
+// since this has side effects — calls clearCache(), strips the URL —
+// the second invocation would see the URL already cleaned and return
+// null, masking the banner. Moving the work to module scope sidesteps
+// that: the module loads once, the side effect runs once, and the
+// component just reads the resulting count.
+function consumeClearCacheParam(): number | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("clear_cache")) return null;
+  const count = clearCache();
+  params.delete("clear_cache");
+  const remaining = params.toString();
+  const newUrl =
+    window.location.pathname +
+    (remaining ? `?${remaining}` : "") +
+    window.location.hash;
+  window.history.replaceState(null, "", newUrl);
+  return count;
+}
+
+const INITIAL_CACHE_CLEARED_NOTICE: number | null = consumeClearCacheParam();
+
 type View = "lookup" | "about";
 // Two-phase flow: the landing page (input + workflow overview + settings)
 // transitions to the results page when a lookup runs. "Edit input" on the
@@ -60,6 +92,20 @@ export function App() {
   const [results, setResults] = useState<DrugResult[]>([]);
   const [progress, setProgress] = useState({ completed: 0, total: 0 });
   const [running, setRunning] = useState(false);
+  // Notice for the `?clear_cache=1` URL knob — null means no banner.
+  // The actual cache-clear ran at module-load (see
+  // INITIAL_CACHE_CLEARED_NOTICE). We just surface the count here.
+  const [cacheClearedNotice, setCacheClearedNotice] = useState<number | null>(
+    INITIAL_CACHE_CLEARED_NOTICE
+  );
+
+  // Auto-dismiss the cache-cleared banner after a few seconds so it
+  // doesn't linger across the rest of the user's session.
+  useEffect(() => {
+    if (cacheClearedNotice === null) return;
+    const t = window.setTimeout(() => setCacheClearedNotice(null), 8000);
+    return () => window.clearTimeout(t);
+  }, [cacheClearedNotice]);
 
   useEffect(() => {
     saveSettings(settings);
@@ -210,6 +256,29 @@ export function App() {
           </div>
         </div>
       </header>
+
+      {cacheClearedNotice !== null && (
+        <div
+          role="status"
+          className="flex-shrink-0 bg-violet-50 border-b border-violet-200 text-violet-900 px-6 py-2 text-xs flex items-center justify-between gap-4"
+        >
+          <span>
+            <span className="font-semibold">Local cache cleared</span> ·{" "}
+            {cacheClearedNotice === 0
+              ? "no cached results to drop"
+              : `${cacheClearedNotice} cached result${cacheClearedNotice === 1 ? "" : "s"} removed`}
+            . Lookups will re-fetch from upstream.
+          </span>
+          <button
+            type="button"
+            onClick={() => setCacheClearedNotice(null)}
+            className="text-violet-700 hover:text-violet-900"
+            aria-label="Dismiss notice"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {view === "about" ? (
         <main className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
