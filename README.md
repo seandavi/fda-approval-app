@@ -11,16 +11,19 @@ public APIs to determine FDA approval status.
 
 **Live demo**: [fda-approvals.cancerdatasci.org](https://fda-approvals.cancerdatasci.org)
 
-Runs entirely in the browser. No backend, no server-side storage. Deployable
-to any static host (Netlify, Cloudflare Pages, GitHub Pages, S3, …).
+The frontend runs entirely in the browser. A single optional Netlify
+Function proxies the last-resort LLM lookup (Layer 7) so users don't need
+their own LLM API key; with that disabled, the app remains a pure static
+site deployable to any host.
 
 ---
 
 ## Features
 
-- **Six-layer lookup pipeline** — openFDA `drugsfda` → openFDA `label` →
-  openFDA `ndc` → RxNorm → ChEMBL → ClinicalTrials.gov, short-circuiting
-  on first hit.
+- **Seven-layer lookup pipeline** — openFDA `drugsfda` → openFDA `label` →
+  openFDA `ndc` → RxNorm → ChEMBL → ClinicalTrials.gov → Gemini (Vertex
+  AI), short-circuiting on first hit. The LLM layer is optional and only
+  runs when the prior six can't resolve a name.
 - **Beyond NDA/BLA/ANDA** — the NDC layer captures drugs marketed under
   the FDA OTC monograph (aspirin, ibuprofen, acetaminophen) and those
   marketed without approval (homeopathic, etc.), with explicit status
@@ -96,6 +99,46 @@ Vite's `base` path is controlled by `VITE_BASE_PATH` at build time:
 
 You'll get a `*.netlify.app` URL plus a fresh preview deploy on every PR.
 
+#### Optional: enable the Layer 7 LLM fallback
+
+The `/api/llm-lookup` Netlify Function in [`netlify/functions/`](netlify/functions/llm-lookup.ts)
+calls Gemini via Vertex AI for drugs whose original approval predates
+openFDA's online data (Cosmegen 1964, Velban 1961, Cytosar-U 1969, etc.).
+Without it, those drugs return `not_found` or a much later ANDA date.
+
+Setup (one-time):
+
+```sh
+# Provisions GCP project, service account, role binding, and JSON key.
+# Idempotent — re-running is a no-op if everything's already in place.
+./scripts/setup-gcp.sh
+```
+
+The script writes the service-account JSON to `./secrets/` (gitignored).
+Paste its contents into Netlify under **Site settings → Environment
+variables**:
+
+| Variable | Required? | Default | Notes |
+|---|---|---|---|
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | yes | — | Full service-account JSON, stringified. Without this the function returns 503 and Layer 7 is a quiet no-op. |
+| `GCP_PROJECT_ID` | no | parsed from JSON | Override if the JSON's `project_id` isn't the one you want billed. |
+| `VERTEX_REGION` | no | `global` | Gemini 3.x only lives at the global endpoint. |
+| `VERTEX_MODEL` | no | `gemini-3.1-flash-lite` | Bump to `gemini-3.1-pro-preview` for harder cases. |
+
+Smoke-test once deployed:
+
+```sh
+curl -s -X POST https://<your-site>/api/llm-lookup \
+     -H 'content-type: application/json' \
+     -d '{"drugName":"Cosmegen"}' | jq
+```
+
+Cost is on the order of a few cents per thousand lookups at Flash-Lite
+pricing. **Set a GCP billing budget alert anyway** — the per-IP rate
+limiter in the function is best-effort and resets on cold start; it isn't
+a defense against a determined caller. The function also caps
+`max_output_tokens` and ignores client-supplied model overrides.
+
 ### Cloudflare Pages
 
 Same flow as Netlify, but at [dash.cloudflare.com](https://dash.cloudflare.com)
@@ -151,7 +194,7 @@ The app fires these custom events out of the box (see `src/lookup.ts`):
 | `lookup_started` | Lookup button clicked | `batch_size`, `mode` |
 | `lookup_completed` | Batch finishes | `batch_size`, `approved_count`, `not_found_count`, `error_count`, `duration_ms` |
 | `drug_resolved` | Each individual result lands | `status`, `resolved_via`, `was_cached`, `had_id_translation` |
-| `layer_hit` | A pipeline layer produces a hit | `layer` (1-5), `drug_name_hash` |
+| `layer_hit` | A pipeline layer produces a hit | `layer` (1-7), `drug_name_hash` |
 | `export_csv` / `cache_cleared` / `api_key_set` | UI actions | — |
 
 Drug names are hashed (`btoa(normalized).slice(0,8)`) before being attached
@@ -166,6 +209,7 @@ src/
   api/rxnorm.ts         layer 4
   api/chembl.ts         layer 5
   api/clinicaltrials.ts layer 6
+  api/llm.ts            layer 7 client — POSTs to /api/llm-lookup
   lookup.ts             orchestrates the pipeline with short-circuit
   cache.ts              localStorage result cache (7d default TTL)
   normalize.ts          name cleanup + INN heuristics
@@ -174,6 +218,39 @@ src/
   components/           InputPanel, ResultsTable, ResultRow, ResultsStrip,
                         StatusBadge, ProgressBar, ExportButton,
                         SettingsPanel, AboutPage, InfoTooltip
+
+netlify/
+  functions/llm-lookup.ts  Vertex AI proxy. Holds the service-account
+                           credential; client never sees an LLM key.
+scripts/
+  setup-gcp.sh             Idempotent GCP project / SA / key bootstrap.
+```
+
+### Data flow
+
+```
+                      ┌─────────────────────────────┐
+                      │       Browser (Vite SPA)    │
+                      │ ┌─────────────────────────┐ │
+                      │ │   lookup.ts (Layers 1-6)│ │──► openFDA, RxNorm,
+                      │ └─────────────────────────┘ │    ChEMBL, CT.gov
+                      │              │              │
+                      │              ▼ if unresolved│
+                      │ ┌─────────────────────────┐ │
+                      │ │ llm.ts (Layer 7 client) │ │── POST /api/llm-lookup
+                      │ └─────────────────────────┘ │            │
+                      └─────────────────────────────┘            │
+                                                                 │
+                            same origin (Netlify)                ▼
+                      ┌─────────────────────────────────────────────────┐
+                      │        Netlify Function: llm-lookup.ts          │
+                      │ • Service account auth (env: GOOGLE_APP…JSON)   │
+                      │ • Rate limit (per IP, token bucket)             │
+                      │ • Caps: max_tokens, drug-name length, allowlist │
+                      └─────────────────────────────────────────────────┘
+                                          │
+                                          ▼
+                              Google Vertex AI / Gemini
 ```
 
 For the full design rationale, see [`fda-lookup-spec.md`](fda-lookup-spec.md)
