@@ -658,6 +658,124 @@ describe("lookupDrug — label-text grounding for arbiter (#21)", () => {
     expect(sawAppnumFetch).toBe(false);
   });
 
+  it("populates currentIndications + originalIndication from the LLM response (#22)", async () => {
+    mock.on(
+      /openfda\.brand_name:"pembrolizumab"/,
+      drugsfdaApproved({
+        appNum: "BLA125514",
+        date: "20140904",
+        brand: "KEYTRUDA",
+        generic: "PEMBROLIZUMAB",
+      })
+    );
+    mock.on(/openfda\.generic_name:"pembrolizumab"/, EMPTY_FDA);
+    mock.on(/label\.json/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["BLA125514"] },
+          indications_and_usage: [
+            "KEYTRUDA is indicated for the treatment of melanoma, NSCLC, " +
+              "HNSCC, and several other tumor types.",
+          ],
+        },
+      ],
+    });
+    mock.on(/ndc\.json/, EMPTY_NDC);
+    mock.on(
+      "/api/llm-lookup",
+      llmPayload({
+        agreement: "confirm",
+        status: "approved",
+        confidence: "high",
+        application_number: "BLA125514",
+        application_type: "BLA",
+        approval_date: "2014-09-04",
+        brand_name: "KEYTRUDA",
+        generic_name: "pembrolizumab",
+        current_indications: [
+          "unresectable or metastatic melanoma",
+          "metastatic non-small cell lung cancer",
+          "recurrent or metastatic head and neck squamous cell carcinoma",
+        ],
+        original_indication: "unresectable or metastatic melanoma",
+        rationale: "Label matches.",
+      })
+    );
+    mock.install();
+
+    const r = await lookupDrug("pembrolizumab", OPTS);
+
+    expect(r.currentIndications).toEqual([
+      "unresectable or metastatic melanoma",
+      "metastatic non-small cell lung cancer",
+      "recurrent or metastatic head and neck squamous cell carcinoma",
+    ]);
+    expect(r.originalIndication).toBe("unresectable or metastatic melanoma");
+  });
+
+  it("drops empty/whitespace-only indication strings from the LLM response (#22)", async () => {
+    mock.on(
+      /openfda\.brand_name:"pembrolizumab"/,
+      drugsfdaApproved({
+        appNum: "BLA125514",
+        date: "20140904",
+        brand: "KEYTRUDA",
+        generic: "PEMBROLIZUMAB",
+      })
+    );
+    mock.on(/openfda\.generic_name:"pembrolizumab"/, EMPTY_FDA);
+    mock.on(/label\.json/, EMPTY_LABEL);
+    mock.on(/ndc\.json/, EMPTY_NDC);
+    mock.on(
+      "/api/llm-lookup",
+      llmPayload({
+        agreement: "confirm",
+        status: "approved",
+        confidence: "high",
+        current_indications: ["  ", "", "  melanoma  "],
+        original_indication: "   ",
+      })
+    );
+    mock.install();
+
+    const r = await lookupDrug("pembrolizumab", OPTS);
+
+    expect(r.currentIndications).toEqual(["melanoma"]);
+    expect(r.originalIndication).toBeUndefined();
+  });
+
+  it("handles null/missing indications fields gracefully (#22 — fixtures from #18 still pass)", async () => {
+    mock.on(
+      /openfda\.brand_name:"pembrolizumab"/,
+      drugsfdaApproved({
+        appNum: "BLA125514",
+        date: "20140904",
+        brand: "KEYTRUDA",
+        generic: "PEMBROLIZUMAB",
+      })
+    );
+    mock.on(/openfda\.generic_name:"pembrolizumab"/, EMPTY_FDA);
+    mock.on(/label\.json/, EMPTY_LABEL);
+    mock.on(/ndc\.json/, EMPTY_NDC);
+    mock.on(
+      "/api/llm-lookup",
+      llmPayload({
+        agreement: "confirm",
+        status: "approved",
+        confidence: "high",
+        // current_indications and original_indication intentionally absent
+      })
+    );
+    mock.install();
+
+    const r = await lookupDrug("pembrolizumab", OPTS);
+
+    expect(r.currentIndications).toBeUndefined();
+    expect(r.originalIndication).toBeUndefined();
+    expect(r.status).toBe("approved");
+  });
+
   it("does not fetch label or invoke arbiter when status is otc_monograph", async () => {
     // Aspirin: NDC resolves to OTC monograph, arbiter is skipped per the
     // existing rule, so the new label-grounding fetch must also be skipped.

@@ -33,6 +33,17 @@ const COLUMNS: Array<{ header: string; pick: (r: DrugResult) => string }> = [
     header: "pipelineResolvedVia",
     pick: (r) => r.pipelineResolvedVia ?? "",
   },
+  // Indications from the Layer 7 arbiter (#22). currentIndications is a
+  // pipe-delimited list — pipe avoids both the field separator and the
+  // semicolon used as field separator in some Excel locales.
+  {
+    header: "originalIndication",
+    pick: (r) => r.originalIndication ?? "",
+  },
+  {
+    header: "currentIndications",
+    pick: (r) => (r.currentIndications ?? []).join("|"),
+  },
   { header: "lookedUpAt", pick: (r) => r.lookedUpAt },
   { header: "app_version", pick: () => SHORT_SHA },
 ];

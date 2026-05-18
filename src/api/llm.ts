@@ -11,6 +11,8 @@ interface LLMResponseShape {
   application_type?: "NDA" | "BLA" | "ANDA" | null;
   approval_date?: string | null;
   sponsor?: string | null;
+  current_indications?: string[] | null;
+  original_indication?: string | null;
   confidence?: "high" | "medium" | "low";
   rationale?: string;
 }
@@ -37,6 +39,13 @@ export interface LLMPartial {
   applicationType?: "NDA" | "BLA" | "ANDA";
   approvalDate?: string;
   sponsor?: string;
+  // Verbatim indications from the label text we provided to the model.
+  // Null/undefined when the model wasn't given label text or chose not to
+  // populate the field.
+  currentIndications?: string[];
+  // First-approval indication, drawn from the model's training knowledge
+  // anchored to approvalDate. Null/undefined when uncertain.
+  originalIndication?: string;
   confidence?: "high" | "medium" | "low";
   rationale?: string;
   sources: SourceHit[];
@@ -150,6 +159,16 @@ export async function queryLLM(
     // can apply its own thresholds (confidence + date gap + same-molecule
     // check). Pre-filtering for confidence='low' here would hide useful
     // "the candidate is right" confirmations.
+    // Trim individual indication strings and drop empty entries — Gemini
+    // occasionally pads list items with leading/trailing whitespace or
+    // emits an empty string when the label has a stub section.
+    const cleanedIndications = Array.isArray(parsed.current_indications)
+      ? parsed.current_indications
+          .filter((s): s is string => typeof s === "string")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
+      : undefined;
+
     return {
       agreement,
       status,
@@ -159,6 +178,11 @@ export async function queryLLM(
       applicationType: parsed.application_type ?? appTypeOf(appNum),
       approvalDate: parsed.approval_date ?? undefined,
       sponsor: parsed.sponsor ?? undefined,
+      currentIndications:
+        cleanedIndications && cleanedIndications.length > 0
+          ? cleanedIndications
+          : undefined,
+      originalIndication: parsed.original_indication?.trim() || undefined,
       confidence: parsed.confidence,
       rationale: parsed.rationale,
       sources,

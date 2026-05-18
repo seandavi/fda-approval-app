@@ -24,10 +24,10 @@ import { GoogleGenAI, type Content } from "@google/genai";
 const DEFAULT_REGION = process.env.VERTEX_REGION ?? "global";
 const DEFAULT_MODEL = process.env.VERTEX_MODEL ?? "gemini-3.1-flash-lite";
 // Gemini 3 preview uses ~thinking tokens, so it needs headroom even when
-// the final answer is a tiny JSON object. Bumped from 2048 to make room
-// for prompts that now include up to MAX_LABEL_CHARS of label text plus
-// any thinking-token overhead on longer reasoning chains.
-const MAX_TOKENS = 3072;
+// the final answer is a tiny JSON object. Bumped from 2048 to leave room
+// for thinking tokens on longer prompts and for response payloads that
+// can include 25+ verbatim indication strings (Keytruda, Opdivo).
+const MAX_TOKENS = 4096;
 const MAX_DRUG_NAME_LEN = 200;
 // Cap on label `indications_and_usage` text included in the prompt.
 // Real labels for big-tent oncology drugs (Keytruda, Opdivo) run 15-20 KB,
@@ -124,6 +124,8 @@ function userPrompt(name: string, pipeline?: PipelineFinding): string {
     `  "application_type": "NDA" | "BLA" | "ANDA" | null,\n` +
     `  "approval_date": "YYYY-MM-DD" | null,  // ORIGINAL approval, not later supplements\n` +
     `  "sponsor": string | null,\n` +
+    `  "current_indications": string[] | null,   // every distinct indication on the provided label, verbatim\n` +
+    `  "original_indication": string | null,     // disease/condition at first FDA approval; null if uncertain\n` +
     `  "confidence": "high" | "medium" | "low",\n` +
     `  "rationale": string                    // 1-2 sentences explaining the verdict\n` +
     `}\n\n` +
@@ -132,7 +134,17 @@ function userPrompt(name: string, pipeline?: PipelineFinding): string {
     `- Withdrawn/discontinued products are still "approved" or "discontinued".\n` +
     `- approval_date must be the FIRST FDA approval, even if decades old.\n` +
     `- If unsure of exact date or application number, set them to null and ` +
-    `lower confidence — do not guess.`;
+    `lower confidence — do not guess.\n` +
+    `- current_indications must be drawn FROM THE PROVIDED LABEL TEXT ONLY. ` +
+    `Enumerate every distinct indication. Do not summarize, do not deduplicate ` +
+    `by therapy area, do not normalize phrasing. Use verbatim wording from ` +
+    `the label, including biomarker requirements, lines of therapy, and ` +
+    `combination partners. If no label text was provided, set current_indications ` +
+    `to null — do NOT fall back to your training knowledge for this field.\n` +
+    `- original_indication is the disease/condition for which the drug was ` +
+    `FIRST approved by FDA (anchored to approval_date). This MAY draw on your ` +
+    `training knowledge when the current label does not reflect the original ` +
+    `indication — but set it to null if you are uncertain.`;
 
   return base + context + labelBlock + schema;
 }
@@ -160,9 +172,17 @@ const RESPONSE_SCHEMA = {
     },
     approval_date: { type: "string", nullable: true },
     sponsor: { type: "string", nullable: true },
+    current_indications: {
+      type: "array",
+      items: { type: "string" },
+      nullable: true,
+    },
+    original_indication: { type: "string", nullable: true },
     confidence: { type: "string", enum: ["high", "medium", "low"] },
     rationale: { type: "string" },
   },
+  // Leave indications optional so prior arbiter regression fixtures
+  // (#13/#18) continue to validate without a flag day.
   required: ["agreement", "status", "confidence", "rationale"],
 } as const;
 

@@ -358,6 +358,14 @@ export async function lookupDrug(
       if (llm.agreement) result.llmAgreement = llm.agreement;
       if (llm.confidence) result.llmConfidence = llm.confidence;
       if (llm.rationale) result.llmRationale = llm.rationale;
+      // Indications flow through regardless of confirm/correct/override —
+      // they describe the molecule, not the application history.
+      if (llm.currentIndications && llm.currentIndications.length > 0) {
+        result.currentIndications = llm.currentIndications;
+      }
+      if (llm.originalIndication) {
+        result.originalIndication = llm.originalIndication;
+      }
 
       const llmHasAnswer =
         !!llm.status && llm.status !== "not_found";
