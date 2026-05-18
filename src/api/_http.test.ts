@@ -1,32 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchWithBackoff, redactApiKey } from "./_http";
-
-describe("redactApiKey", () => {
-  it("redacts an api_key query parameter", () => {
-    expect(
-      redactApiKey("https://api.fda.gov/drug/drugsfda.json?search=x&api_key=SECRET")
-    ).toBe(
-      "https://api.fda.gov/drug/drugsfda.json?search=x&api_key=REDACTED"
-    );
-  });
-
-  it("redacts api_key when it's the first query parameter", () => {
-    expect(redactApiKey("https://api.example/x?api_key=ABC123&q=foo")).toBe(
-      "https://api.example/x?api_key=REDACTED&q=foo"
-    );
-  });
-
-  it("is a no-op for URLs without an api_key", () => {
-    const url = "https://rxnav.nlm.nih.gov/REST/drugs.json?name=aspirin";
-    expect(redactApiKey(url)).toBe(url);
-  });
-
-  it("case-insensitive on the api_key parameter name", () => {
-    expect(redactApiKey("https://x/y?Api_Key=SECRET")).toBe(
-      "https://x/y?Api_Key=REDACTED"
-    );
-  });
-});
+import { fetchWithBackoff } from "./_http";
 
 describe("fetchWithBackoff", () => {
   afterEach(() => {

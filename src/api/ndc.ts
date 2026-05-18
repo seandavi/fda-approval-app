@@ -1,5 +1,5 @@
 import type { ApprovalStatus, ResolvedVia, SourceHit } from "../types";
-import { fetchWithBackoff, redactApiKey as redact } from "./_http";
+import { fetchWithBackoff } from "./_http";
 import { SALT_SUFFIX_RE } from "./salts";
 
 const OPENFDA_BASE = "https://api.fda.gov";
@@ -72,8 +72,7 @@ function isStrongMatch(query: string, r: NdcResult): boolean {
 
 async function queryField(
   field: "brand_name" | "generic_name",
-  name: string,
-  apiKey: string
+  name: string
 ): Promise<NdcPartial> {
   const sources: SourceHit[] = [];
   const api = `openfda/ndc (${field})`;
@@ -81,24 +80,22 @@ async function queryField(
     search: `${field}:"${name}"`,
     limit: "20",
   });
-  if (apiKey) params.set("api_key", apiKey);
   const url = `${OPENFDA_BASE}/drug/ndc.json?${params.toString()}`;
-  const safeUrl = redact(url);
 
   try {
     const r = await fetchWithBackoff(url);
     if (r.status === 404) {
-      sources.push({ api, url: safeUrl, hit: false, detail: "no results" });
+      sources.push({ api, url, hit: false, detail: "no results" });
       return { sources };
     }
     if (!r.ok) {
-      sources.push({ api, url: safeUrl, hit: false, detail: `HTTP ${r.status}` });
+      sources.push({ api, url, hit: false, detail: `HTTP ${r.status}` });
       return { sources };
     }
     const body = (await r.json()) as { results?: NdcResult[] };
     const results = body.results ?? [];
     if (results.length === 0) {
-      sources.push({ api, url: safeUrl, hit: false, detail: "empty results" });
+      sources.push({ api, url, hit: false, detail: "empty results" });
       return { sources };
     }
 
@@ -110,7 +107,7 @@ async function queryField(
     if (ranked.length === 0) {
       sources.push({
         api,
-        url: safeUrl,
+        url,
         hit: false,
         detail: `${results.length} weak/combo results — no single-ingredient exact match`,
       });
@@ -137,7 +134,7 @@ async function queryField(
 
     sources.push({
       api,
-      url: safeUrl,
+      url,
       hit: true,
       detail: `${status} (${best.marketing_category})`,
     });
@@ -154,7 +151,7 @@ async function queryField(
   } catch (e) {
     sources.push({
       api,
-      url: safeUrl,
+      url,
       hit: false,
       detail: e instanceof Error ? e.message : "fetch failed",
     });
@@ -163,13 +160,12 @@ async function queryField(
 }
 
 export async function queryOpenFdaNdc(
-  name: string,
-  apiKey: string
+  name: string
 ): Promise<NdcPartial> {
   // Try brand_name first (matches things like "Tylenol"), then generic.
-  const byBrand = await queryField("brand_name", name, apiKey);
+  const byBrand = await queryField("brand_name", name);
   if (byBrand.status) return byBrand;
-  const byGeneric = await queryField("generic_name", name, apiKey);
+  const byGeneric = await queryField("generic_name", name);
   return {
     ...byGeneric,
     sources: [...byBrand.sources, ...byGeneric.sources],

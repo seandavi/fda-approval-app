@@ -27,12 +27,12 @@ approval status. Deployable as a static site to GitHub Pages or Cloudflare Pages
 Create a `.env` file (and `.env.example` checked into git):
 
 ```
-VITE_OPENFDA_API_KEY=        # optional but recommended; get at open.fda.gov
 VITE_GA_MEASUREMENT_ID=      # e.g. G-XXXXXXXXXX
 ```
 
-Both are injected at build time via `import.meta.env`. If `VITE_OPENFDA_API_KEY`
-is empty, openFDA requests proceed unauthenticated (240 req/min limit).
+Injected at build time via `import.meta.env`. openFDA requests are
+always unauthenticated (240 req/min per IP — sufficient at the app's
+default batch concurrency of 5).
 
 ---
 
@@ -84,10 +84,10 @@ Try both brand name and generic name fields:
 
 ```
 GET https://api.fda.gov/drug/drugsfda.json
-  ?search=openfda.brand_name:"<NAME>"&limit=5&api_key=<KEY>
+  ?search=openfda.brand_name:"<NAME>"&limit=5
 
 GET https://api.fda.gov/drug/drugsfda.json
-  ?search=openfda.generic_name:"<NAME>"&limit=5&api_key=<KEY>
+  ?search=openfda.generic_name:"<NAME>"&limit=5
 ```
 
 For each result, scan `submissions[]` for any entry where
@@ -247,7 +247,6 @@ Instrument the following events:
 | `drug_resolved` | Single drug result | `{ status, resolved_via, was_cached, had_id_translation: boolean }` |
 | `export_csv` | User downloads CSV | `{ row_count }` |
 | `cache_cleared` | User clears cache | — |
-| `api_key_set` | User saves API key | — |
 | `layer_hit` | A lookup layer returned a result | `{ layer: 1\|2\|3\|4\|5, drug_name_hash: string }` |
 
 Use a stable hash (e.g. `btoa(normalizedName).slice(0,8)`) for `drug_name_hash`

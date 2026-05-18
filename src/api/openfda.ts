@@ -1,6 +1,6 @@
 import { sameMolecule } from "../molecule";
 import type { ApprovalStatus, ResolvedVia, SourceHit } from "../types";
-import { fetchWithBackoff, redactApiKey as redact } from "./_http";
+import { fetchWithBackoff } from "./_http";
 import { isSaltSuffixMatch } from "./salts";
 
 const OPENFDA_BASE = "https://api.fda.gov";
@@ -68,7 +68,6 @@ function formatDate(yyyymmdd: string | undefined): string | undefined {
 function buildDrugsFdaUrl(
   field: "brand_name" | "generic_name",
   name: string,
-  apiKey: string,
   wildcard: boolean
 ): string {
   // openFDA tokenizes on whitespace. A naked multi-token wildcard like
@@ -81,7 +80,6 @@ function buildDrugsFdaUrl(
     search: `openfda.${field}:${value}`,
     limit: "10",
   });
-  if (apiKey) params.set("api_key", apiKey);
   return `${OPENFDA_BASE}/drug/drugsfda.json?${params.toString()}`;
 }
 
@@ -197,8 +195,7 @@ function interpretDrugsFda(
 
 async function queryDrugsFda(
   field: "brand_name" | "generic_name",
-  name: string,
-  apiKey: string
+  name: string
 ): Promise<OpenFdaPartial> {
   const sources: SourceHit[] = [];
   const api = `openfda/drugsfda (${field})`;
@@ -206,28 +203,28 @@ async function queryDrugsFda(
   // Skip the wildcard pass for multi-token names — see buildDrugsFdaUrl.
   const passes = name.includes(" ") ? [false] : [false, true];
   for (const wildcard of passes) {
-    const url = buildDrugsFdaUrl(field, name, apiKey, wildcard);
+    const url = buildDrugsFdaUrl(field, name, wildcard);
     try {
       const r = await fetchWithBackoff(url);
       if (r.status === 404) {
-        sources.push({ api, url: redact(url), hit: false, detail: "no results" });
+        sources.push({ api, url, hit: false, detail: "no results" });
         continue;
       }
       if (!r.ok) {
-        sources.push({ api, url: redact(url), hit: false, detail: `HTTP ${r.status}` });
+        sources.push({ api, url, hit: false, detail: `HTTP ${r.status}` });
         continue;
       }
       const body = (await r.json()) as { results?: DrugsFdaResult[] };
       const results = body.results ?? [];
       if (results.length === 0) {
-        sources.push({ api, url: redact(url), hit: false, detail: "empty results" });
+        sources.push({ api, url, hit: false, detail: "empty results" });
         continue;
       }
       const interp = interpretDrugsFda(name, results);
       if (interp.status) {
         sources.push({
           api,
-          url: redact(url),
+          url,
           hit: true,
           detail: `${interp.status} ${interp.applicationNumber ?? ""}`.trim(),
         });
@@ -237,11 +234,11 @@ async function queryDrugsFda(
           sources,
         };
       }
-      sources.push({ api, url: redact(url), hit: false, detail: "no AP submission" });
+      sources.push({ api, url, hit: false, detail: "no AP submission" });
     } catch (e) {
       sources.push({
         api,
-        url: redact(url),
+        url,
         hit: false,
         detail: e instanceof Error ? e.message : "fetch failed",
       });
@@ -270,8 +267,7 @@ function preferEarlierOriginal(
 }
 
 export async function queryOpenFdaDrugsFda(
-  name: string,
-  apiKey: string
+  name: string
 ): Promise<OpenFdaPartial> {
   // Always run both brand and generic searches and pick the stronger
   // result. Pre-fix this short-circuited at brand: "capecitabine" matched
@@ -279,8 +275,8 @@ export async function queryOpenFdaDrugsFda(
   // NDA020896 (1998) sitting in the generic-search result set (#13).
   // The two searches are independent — parallelize them (#29).
   const [byBrand, byGeneric] = await Promise.all([
-    queryDrugsFda("brand_name", name, apiKey),
-    queryDrugsFda("generic_name", name, apiKey),
+    queryDrugsFda("brand_name", name),
+    queryDrugsFda("generic_name", name),
   ]);
   const combinedSources = [...byBrand.sources, ...byGeneric.sources];
   const winner = preferEarlierOriginal(byBrand, byGeneric);
@@ -309,8 +305,7 @@ export async function queryOpenFdaDrugsFda(
 }
 
 export async function queryOpenFdaLabel(
-  name: string,
-  apiKey: string
+  name: string
 ): Promise<OpenFdaPartial> {
   const sources: SourceHit[] = [];
   const api = "openfda/label";
@@ -318,17 +313,16 @@ export async function queryOpenFdaLabel(
     search: `openfda.brand_name:"${name}"`,
     limit: "3",
   });
-  if (apiKey) params.set("api_key", apiKey);
   const url = `${OPENFDA_BASE}/drug/label.json?${params.toString()}`;
 
   try {
     const r = await fetchWithBackoff(url);
     if (r.status === 404) {
-      sources.push({ api, url: redact(url), hit: false, detail: "no results" });
+      sources.push({ api, url, hit: false, detail: "no results" });
       return { sources };
     }
     if (!r.ok) {
-      sources.push({ api, url: redact(url), hit: false, detail: `HTTP ${r.status}` });
+      sources.push({ api, url, hit: false, detail: `HTTP ${r.status}` });
       return { sources };
     }
     const body = (await r.json()) as { results?: LabelResult[] };
@@ -342,7 +336,7 @@ export async function queryOpenFdaLabel(
       if (type && (cat === "NDA" || cat === "BLA")) {
         sources.push({
           api,
-          url: redact(url),
+          url,
           hit: true,
           detail: `${cat} ${appNum}`,
         });
@@ -359,14 +353,14 @@ export async function queryOpenFdaLabel(
     }
     sources.push({
       api,
-      url: redact(url),
+      url,
       hit: false,
       detail: results.length === 0 ? "empty" : "no NDA/BLA label",
     });
   } catch (e) {
     sources.push({
       api,
-      url: redact(url),
+      url,
       hit: false,
       detail: e instanceof Error ? e.message : "fetch failed",
     });
@@ -443,8 +437,7 @@ function pickBestLabelResult(
 }
 
 export async function fetchLabelIndicationByAppNum(
-  applicationNumber: string,
-  apiKey: string
+  applicationNumber: string
 ): Promise<LabelIndicationFetch> {
   const sources: SourceHit[] = [];
   const api = "openfda/label (by appnum)";
@@ -458,19 +451,18 @@ export async function fetchLabelIndicationByAppNum(
     search: `openfda.application_number:"${applicationNumber}"`,
     limit: "5",
   });
-  if (apiKey) params.set("api_key", apiKey);
   const url = `${OPENFDA_BASE}/drug/label.json?${params.toString()}`;
 
   try {
     const r = await fetchWithBackoff(url);
     if (r.status === 404) {
-      sources.push({ api, url: redact(url), hit: false, detail: "no label" });
+      sources.push({ api, url, hit: false, detail: "no label" });
       return { sources };
     }
     if (!r.ok) {
       sources.push({
         api,
-        url: redact(url),
+        url,
         hit: false,
         detail: `HTTP ${r.status}`,
       });
@@ -479,14 +471,14 @@ export async function fetchLabelIndicationByAppNum(
     const body = (await r.json()) as { results?: LabelResult[] };
     const results = body.results ?? [];
     if (results.length === 0) {
-      sources.push({ api, url: redact(url), hit: false, detail: "empty" });
+      sources.push({ api, url, hit: false, detail: "empty" });
       return { sources };
     }
     const best = pickBestLabelResult(results);
     if (!best) {
       sources.push({
         api,
-        url: redact(url),
+        url,
         hit: false,
         detail: "no indications section",
       });
@@ -498,7 +490,7 @@ export async function fetchLabelIndicationByAppNum(
       // grounding rather than reporting a "successful" 0-char hit.
       sources.push({
         api,
-        url: redact(url),
+        url,
         hit: false,
         detail: "no indications after stripping boilerplate",
       });
@@ -506,7 +498,7 @@ export async function fetchLabelIndicationByAppNum(
     }
     sources.push({
       api,
-      url: redact(url),
+      url,
       hit: true,
       detail: `${cleaned.length} chars`,
     });
@@ -514,7 +506,7 @@ export async function fetchLabelIndicationByAppNum(
   } catch (e) {
     sources.push({
       api,
-      url: redact(url),
+      url,
       hit: false,
       detail: e instanceof Error ? e.message : "fetch failed",
     });

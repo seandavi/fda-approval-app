@@ -16,9 +16,6 @@ export function SettingsPanel({ settings, onChange }: Props) {
 
   function save() {
     onChange(draft);
-    if (draft.openfdaApiKey && draft.openfdaApiKey !== settings.openfdaApiKey) {
-      trackEvent("api_key_set");
-    }
   }
 
   function doClearCache() {
@@ -40,24 +37,6 @@ export function SettingsPanel({ settings, onChange }: Props) {
       </button>
       {open && (
         <div className="px-4 pb-4 space-y-3 text-sm">
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
-              openFDA API key
-              <InfoTooltip
-                side="bottom"
-                text="Optional. Without a key, openFDA limits unauthenticated traffic to 240 requests/min per IP. Get one (free) at open.fda.gov/apis/authentication."
-              />
-            </label>
-            <input
-              type="text"
-              value={draft.openfdaApiKey}
-              onChange={(e) =>
-                setDraft({ ...draft, openfdaApiKey: e.target.value })
-              }
-              placeholder="optional — leave blank for 240/min"
-              className="w-full rounded-md ring-1 ring-inset ring-slate-300 px-3 py-1.5 font-mono text-xs"
-            />
-          </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">
               Cache TTL (days)

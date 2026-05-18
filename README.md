@@ -130,8 +130,8 @@ resolve the vast majority of drugs).
 - **Built-in About page** — data flow, indication extraction, data
   sources, and technical implementation are documented inside the app,
   not just in the README.
-- **Privacy-preserving** — openFDA API keys are redacted from stored URLs;
-  optional GA4 events use a stable hash of the normalized name.
+- **Privacy-preserving** — optional GA4 events use a stable hash of the
+  normalized name; no other identifying data is recorded.
 
 ## Quick start
 
@@ -141,18 +141,15 @@ cp .env.example .env   # optional
 npm run dev            # http://localhost:5173
 ```
 
-All env vars are optional. The app works unauthenticated; openFDA just
-limits you to 240 requests/min.
+All env vars are optional. openFDA's unauthenticated tier (240 requests/min
+per IP) is sufficient for batch lookups at the app's default concurrency.
 
 ## Configuration
 
-All env vars are read at build time via `import.meta.env`. You can override
-the openFDA key at runtime through the **Settings** panel (persisted to
-`localStorage`).
+All env vars are read at build time via `import.meta.env`.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `VITE_OPENFDA_API_KEY` | _empty_ | openFDA API key. Without one, traffic is rate limited per IP. Get a free key at [open.fda.gov](https://open.fda.gov/apis/authentication/). |
 | `VITE_GA_MEASUREMENT_ID` | _empty_ | Google Analytics 4 measurement ID (`G-XXXXXXXXXX`). GA is skipped silently if blank. See [Analytics](#analytics) below. |
 | `VITE_BATCH_LIMIT` | `100` | Hard cap on names per batch lookup. |
 | `VITE_GITHUB_REPO` | `seandavi/fda-approval-app` | Target repo for in-app feedback / report links. Forks should override this. |
@@ -179,8 +176,7 @@ Vite's `base` path is controlled by `VITE_BASE_PATH` at build time:
    Node version, SPA redirect, and cache headers automatically. Skip the
    advanced UI fields.
 4. **Site settings → Environment variables**: add
-   `VITE_OPENFDA_API_KEY` (and `VITE_GA_MEASUREMENT_ID` if you have one)
-   so the build picks them up.
+   `VITE_GA_MEASUREMENT_ID` (if you have one) so the build picks it up.
 5. Deploy.
 
 You'll get a `*.netlify.app` URL plus a fresh preview deploy on every PR.
@@ -290,7 +286,7 @@ The app fires these custom events out of the box (see `src/lookup.ts`):
 | `lookup_completed` | Batch finishes | `batch_size`, `approved_count`, `not_found_count`, `error_count`, `duration_ms` |
 | `drug_resolved` | Each individual result lands | `status`, `resolved_via`, `was_cached`, `had_id_translation` |
 | `layer_hit` | A pipeline layer produces a hit | `layer` (1-7), `drug_name_hash` |
-| `export_csv` / `cache_cleared` / `api_key_set` | UI actions | — |
+| `export_csv` / `cache_cleared` | UI actions | — |
 
 Drug names are hashed (`btoa(normalized).slice(0,8)`) before being attached
 to events, so reports surface aggregate patterns without storing PII.

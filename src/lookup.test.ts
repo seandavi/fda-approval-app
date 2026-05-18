@@ -3,7 +3,6 @@ import { FetchMock } from "./test/fetchMock";
 import { lookupDrug } from "./lookup";
 
 const OPTS = {
-  apiKey: "",
   enableLlmProxy: false,
   ttlDays: 7,
   useCache: false,

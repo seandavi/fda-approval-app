@@ -74,7 +74,6 @@ export interface DrugResult {
 }
 
 export interface AppSettings {
-  openfdaApiKey: string;
   cacheTtlDays: number;
   showSourcesByDefault: boolean;
 }

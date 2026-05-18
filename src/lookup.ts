@@ -20,7 +20,6 @@ import { queryRxNorm } from "./api/rxnorm";
 import type { DrugResult, SourceHit } from "./types";
 
 export interface LookupOptions {
-  apiKey: string;
   // When true, the resolver consults the project's /api/llm-lookup proxy
   // (Gemini via Vertex AI) as a last-resort layer for drugs the prior API
   // layers couldn't resolve.
@@ -49,15 +48,14 @@ function emitLayerHit(
 
 async function runOpenFdaApprovalLayers(
   name: string,
-  apiKey: string,
   sources: SourceHit[]
 ): Promise<{ approved: OpenFdaPartial | null; layerHit?: 1 | 2 }> {
-  const drugsFda = await queryOpenFdaDrugsFda(name, apiKey);
+  const drugsFda = await queryOpenFdaDrugsFda(name);
   sources.push(...drugsFda.sources);
   if (drugsFda.status === "approved" || drugsFda.status === "discontinued") {
     return { approved: drugsFda, layerHit: 1 };
   }
-  const label = await queryOpenFdaLabel(name, apiKey);
+  const label = await queryOpenFdaLabel(name);
   sources.push(...label.sources);
   if (label.status === "approved") {
     return { approved: label, layerHit: 2 };
@@ -67,10 +65,9 @@ async function runOpenFdaApprovalLayers(
 
 async function runNdc(
   name: string,
-  apiKey: string,
   sources: SourceHit[]
 ): Promise<NdcPartial | null> {
-  const ndc = await queryOpenFdaNdc(name, apiKey);
+  const ndc = await queryOpenFdaNdc(name);
   sources.push(...ndc.sources);
   if (ndc.status) return ndc;
   return null;
@@ -186,12 +183,10 @@ function applyNdc(result: DrugResult, partial: NdcPartial): void {
 
 async function tryNameChain(
   result: DrugResult,
-  queryName: string,
-  apiKey: string
+  queryName: string
 ): Promise<boolean> {
   const openfda = await runOpenFdaApprovalLayers(
     queryName,
-    apiKey,
     result.sources
   );
   if (openfda.approved) {
@@ -201,7 +196,7 @@ async function tryNameChain(
   }
   // NDC fills the OTC monograph / unapproved-marketed gap that drugsfda
   // doesn't cover (aspirin, acetaminophen, ibuprofen — see #6, #7).
-  const ndc = await runNdc(queryName, apiKey, result.sources);
+  const ndc = await runNdc(queryName, result.sources);
   if (ndc) {
     applyNdc(result, ndc);
     emitLayerHit(3, result.normalizedName);
@@ -257,7 +252,7 @@ export async function lookupDrug(
 
     let resolved = false;
     for (const candidate of namesToTry) {
-      if (await tryNameChain(result, candidate, opts.apiKey)) {
+      if (await tryNameChain(result, candidate)) {
         resolved = true;
         break;
       }
@@ -269,7 +264,7 @@ export async function lookupDrug(
       if (chembl.resolvedINN) {
         result.resolvedINN = chembl.resolvedINN;
         emitLayerHit(5, result.normalizedName);
-        if (await tryNameChain(result, chembl.resolvedINN, opts.apiKey)) {
+        if (await tryNameChain(result, chembl.resolvedINN)) {
           if (!result.resolvedVia) result.resolvedVia = "chembl";
           resolved = true;
         }
@@ -282,7 +277,7 @@ export async function lookupDrug(
       if (ct.resolvedINN && ct.resolvedINN !== result.resolvedINN) {
         result.resolvedINN = ct.resolvedINN;
         emitLayerHit(6, result.normalizedName);
-        if (await tryNameChain(result, ct.resolvedINN, opts.apiKey)) {
+        if (await tryNameChain(result, ct.resolvedINN)) {
           if (!result.resolvedVia) result.resolvedVia = "clinicaltrials";
           resolved = true;
         }
@@ -313,8 +308,7 @@ export async function lookupDrug(
       // and its training knowledge, same as the pre-grounding behavior.
       if (result.applicationNumber) {
         const labelInd = await fetchLabelIndicationByAppNum(
-          result.applicationNumber,
-          opts.apiKey
+          result.applicationNumber
         );
         result.sources.push(...labelInd.sources);
         if (labelInd.indicationText) {
@@ -387,8 +381,7 @@ export async function lookupDrug(
           // provenance stays in the audit trail.
           if (result.applicationNumber) {
             const refetch = await fetchLabelIndicationByAppNum(
-              result.applicationNumber,
-              opts.apiKey
+              result.applicationNumber
             );
             result.sources.push(...refetch.sources);
             if (refetch.indicationText) {
