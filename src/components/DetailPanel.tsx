@@ -106,6 +106,13 @@ function IndicationsBlock({ result }: { result: DrugResult }) {
   const hasOriginal = !!result.originalIndication;
   if (!hasCurrent && !hasOriginal) return null;
 
+  const siblingApp =
+    result.indicationApplicationNumber &&
+    result.applicationNumber &&
+    result.indicationApplicationNumber !== result.applicationNumber
+      ? result.indicationApplicationNumber
+      : null;
+
   return (
     <section>
       <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
@@ -114,6 +121,14 @@ function IndicationsBlock({ result }: { result: DrugResult }) {
           (current FDA label, verbatim)
         </span>
       </h3>
+      {siblingApp && (
+        <p className="text-[11px] text-slate-500 mb-2">
+          Indications shown are from sibling application{" "}
+          <code className="bg-slate-100 px-1 rounded">{siblingApp}</code> —
+          openFDA has no current label for the resolved application but the
+          sibling covers the same molecule.
+        </p>
+      )}
       {hasOriginal && (
         <p className="text-xs text-slate-600 mb-3">
           <span className="font-semibold text-slate-700">

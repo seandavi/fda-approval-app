@@ -988,12 +988,13 @@ describe("lookupDrug — label-text grounding for arbiter (#21)", () => {
     expect(r.originalIndication).toBeUndefined();
   });
 
-  it("clears labelIndicationText + currentIndications when arbiter overrides the candidate (#21/#22)", async () => {
-    // The label text we fetch belongs to the rejected pipeline app, and
-    // the indications enumerated by the arbiter came from that same label
-    // — both must be cleared after an override. We don't refetch for the
-    // LLM-proposed app because the original NDAs that hit this path are
-    // exactly the ones missing from openFDA.
+  it("keeps pipeline-sourced indications when arbiter overrides to an app missing from openFDA (#21/#22/#45)", async () => {
+    // The label text we fetched belongs to the rejected pipeline app. We try
+    // to refetch for the LLM-proposed app; when that misses (the typical
+    // case — the corrected NDA pre-dates openFDA's online window), we keep
+    // the pipeline's text and bullets. shouldOverride already gated on
+    // same-molecule, so the indications are valid for the resolved drug.
+    // We track that provenance in indicationApplicationNumber.
     mock.on(
       "/drug/drugsfda.json",
       drugsfdaApproved({
@@ -1015,6 +1016,9 @@ describe("lookupDrug — label-text grounding for arbiter (#21)", () => {
         },
       ],
     });
+    // No label exists for the LLM-proposed app (the imatinib NDA021335 /
+    // Cytosar-U NDA016406 case): refetch returns empty.
+    mock.on(/openfda\.application_number:"NDA016406"/, EMPTY_LABEL);
     mock.on("/drug/ndc.json", EMPTY_NDC);
     mock.on(
       "/api/llm-lookup",
@@ -1040,12 +1044,81 @@ describe("lookupDrug — label-text grounding for arbiter (#21)", () => {
 
     expect(r.resolvedVia).toBe("llm");
     expect(r.applicationNumber).toBe("NDA016406");
-    // Label text + current indications came from the rejected ANDA's label.
-    expect(r.labelIndicationText).toBeUndefined();
-    expect(r.currentIndications).toBeUndefined();
-    // Original indication is the model's training-knowledge answer about
-    // the corrected approval, not derived from the rejected label.
+    expect(r.pipelineApplicationNumber).toBe("ANDA071868");
+    // Pipeline-sourced text/bullets are retained for the user; provenance
+    // is captured in indicationApplicationNumber so the UI can annotate.
+    expect(r.labelIndicationText).toContain("acute non-lymphocytic leukemia");
+    expect(r.currentIndications).toEqual(["acute non-lymphocytic leukemia"]);
+    expect(r.indicationApplicationNumber).toBe("ANDA071868");
     expect(r.originalIndication).toBe("acute leukemia");
+  });
+
+  it("replaces indications with LLM-proposed app's label when the refetch hits (#45)", async () => {
+    // When the override target *does* have an openFDA label, swap to that
+    // label so indications attach to the resolved application. The arbiter's
+    // bullets (extracted from the rejected label) are dropped — they don't
+    // necessarily match the new text.
+    mock.on(
+      "/drug/drugsfda.json",
+      drugsfdaApproved({
+        appNum: "ANDA071868",
+        date: "19900604",
+        brand: "CYTARABINE",
+        generic: "CYTARABINE",
+      })
+    );
+    mock.on(/openfda\.application_number:"ANDA071868"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["ANDA071868"] },
+          marketing_category: "ANDA",
+          indications_and_usage: [
+            "Cytarabine is indicated for acute non-lymphocytic leukemia.",
+          ],
+        },
+      ],
+    });
+    mock.on(/openfda\.application_number:"NDA016406"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["NDA016406"] },
+          marketing_category: "NDA",
+          indications_and_usage: [
+            "Cytosar-U is indicated in the treatment of acute leukemia.",
+          ],
+        },
+      ],
+    });
+    mock.on("/drug/ndc.json", EMPTY_NDC);
+    mock.on(
+      "/api/llm-lookup",
+      llmPayload({
+        agreement: "correct",
+        status: "approved",
+        confidence: "high",
+        application_number: "NDA016406",
+        application_type: "NDA",
+        approval_date: "1969-06-24",
+        brand_name: "Cytosar-U",
+        generic_name: "cytarabine",
+        current_indications: [
+          "acute non-lymphocytic leukemia",
+        ],
+        rationale: "Cytosar-U is the original Cytarabine approval.",
+      })
+    );
+    mock.install();
+
+    const r = await lookupDrug("Cytarabine", OPTS);
+
+    expect(r.resolvedVia).toBe("llm");
+    expect(r.applicationNumber).toBe("NDA016406");
+    expect(r.labelIndicationText).toContain("treatment of acute leukemia");
+    expect(r.indicationApplicationNumber).toBe("NDA016406");
+    // Bullets came from the rejected ANDA's label — drop them.
+    expect(r.currentIndications).toBeUndefined();
   });
 
   it("preserves labelIndicationText + currentIndications when arbiter confirms (no override)", async () => {
@@ -1092,6 +1165,7 @@ describe("lookupDrug — label-text grounding for arbiter (#21)", () => {
     expect(r.currentIndications).toEqual([
       "unresectable or metastatic melanoma",
     ]);
+    expect(r.indicationApplicationNumber).toBe("BLA125514");
   });
 
   it("handles null/missing indications fields gracefully (#22 — fixtures from #18 still pass)", async () => {

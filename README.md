@@ -1,22 +1,90 @@
 # FDA Drug Approval Lookup
 
-A single-page web app for resolving a list of drug names — brand names, generic
-INNs, or internal company codes like `MK-3475` — against a layered set of
-public APIs to determine FDA approval status, original approval date, and
-the verbatim indications on the current FDA label.
+**Live tool**: [fda-approvals.cancerdatasci.org](https://fda-approvals.cancerdatasci.org)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6.svg)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61dafb.svg)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-5-646cff.svg)](https://vitejs.dev/)
 
-**Live demo**: [fda-approvals.cancerdatasci.org](https://fda-approvals.cancerdatasci.org)
+## What it does
+
+Look up FDA approval status, the original approval date, and the full
+list of currently approved indications for any drug — by **brand name**
+(*Keytruda*), **generic name** (*pembrolizumab*), or **internal research
+code** (*MK-3475*). Paste a single drug or a list of up to 100 and get
+back a sortable table you can filter or download as CSV.
+
+The tool was built to make a common but tedious clinical-research task
+fast: confirming a drug's regulatory status against the FDA's official
+records before citing it in a paper, grant, or trial protocol. Behind
+the scenes it queries six public databases — openFDA, the FDA drug
+label endpoint, the FDA NDC directory, RxNorm, ChEMBL, and
+ClinicalTrials.gov — and cross-checks each result against an AI
+assistant that reads the drug's current FDA label. The indications are
+copied verbatim from the label (biomarker requirements, lines of
+therapy, age cohorts, combination partners) exactly as the FDA wrote
+them — no simplification, no re-categorization.
+
+Use cases that work especially well:
+
+- **A list of drugs from a clinical trial protocol** — paste them all at
+  once, get original approval dates side by side.
+- **Internal research codes** (*MK-3475*, *AZD9291*, *MEDI4736*) — the
+  tool resolves them to the generic name and then to the FDA record.
+- **OTC and unapproved-marketed drugs** — aspirin, acetaminophen, and
+  similar pharmacy-shelf products get a clear status label instead of a
+  misleading "not found" answer.
+- **Older drugs whose original approval predates openFDA's online
+  dataset** (Cosmegen 1964, Cytosar-U 1969, Tamoxifen 1977) — the AI
+  arbiter fills in the original NDA when the deterministic search can
+  only find a later supplement.
+
+The tool runs entirely in your browser. No login, no account, no data
+leaves your machine except to call the public APIs listed above (plus
+the AI arbiter, when enabled). Results are cached locally for a week
+so repeat lookups are instant; clear the cache by appending
+`?clear_cache=1` to the URL.
+
+Open a [GitHub issue](https://github.com/seandavi/fda-approval-app/issues)
+or use the **Feedback** link in the app to report a wrong answer — the
+report comes pre-filled with everything needed to debug it.
+
+## Try it
+
+Visit **[fda-approvals.cancerdatasci.org](https://fda-approvals.cancerdatasci.org)**
+and click **Load example** to see five different drug-resolution
+patterns at once.
+
+## Sharing this tool
+
+Short blurb you can paste into an announcement, newsletter, or email
+to colleagues:
+
+> **FDA Drug Approval Lookup** is a free web tool for resolving drug
+> names — brand names, generic names, or internal research codes — to
+> their original FDA approval record and current approved indications.
+> Paste a single drug or a list of up to 100 and get back a sortable,
+> downloadable table with approval dates, application numbers (NDA /
+> BLA / ANDA), sponsors, and the full set of indications copied
+> verbatim from the current FDA label. Built at the University of
+> Colorado Anschutz Cancer Center to make a common clinical-research
+> step faster and more reliable, and free for anyone to use:
+> **https://fda-approvals.cancerdatasci.org/**
+
+---
+
+## For developers
+
+The rest of this README is technical — implementation details, build
+configuration, deployment, and architecture. The tool itself does not
+require any of this to use.
 
 The frontend runs entirely in the browser. A single optional Netlify
-Function proxies the LLM arbiter (Layer 7) so users don't need their own
-LLM API key; with that disabled, the app remains a pure static site
-deployable to any host (the deterministic layers 1-6 still resolve the
-vast majority of drugs).
+Function proxies the LLM arbiter (Layer 7) so users don't need their
+own LLM API key; with that disabled, the app remains a pure static
+site deployable to any host (the deterministic layers 1-6 still
+resolve the vast majority of drugs).
 
 ---
 

@@ -367,16 +367,40 @@ export async function lookupDrug(
           result.sponsor = llm.sponsor ?? result.sponsor;
           result.resolvedVia = "llm";
           // The label text we fetched belongs to the *rejected* pipeline
-          // application — keeping it on the result would attach indications
-          // from the wrong application. The arbiter's enumerated
-          // currentIndications already came from that same rejected label
-          // and are similarly suspect, so drop both. (We don't refetch for
-          // the LLM-proposed app because the original innovator NDAs that
-          // hit this path are exactly the ones missing from openFDA — there
-          // is no current label to fetch.)
-          result.labelIndicationText = undefined;
-          result.currentIndications = undefined;
+          // application. Try to refetch a label for the LLM-proposed app
+          // so the indications attach to the right application. When the
+          // refetch hits, we replace the text and drop the arbiter's
+          // enumerated bullets (they were extracted from the prior label
+          // and don't necessarily match the new one). When the refetch
+          // misses — common for original innovator NDAs that pre-date
+          // openFDA's online window, e.g. imatinib NDA021335 (#45) — we
+          // keep the pipeline's text and bullets: shouldOverride already
+          // gated on same-molecule, so the indications are valid for the
+          // resolved drug even though sourced from a sibling application.
+          // The arbiter card surfaces pipelineApplicationNumber, so the
+          // provenance stays in the audit trail.
+          if (result.applicationNumber) {
+            const refetch = await fetchLabelIndicationByAppNum(
+              result.applicationNumber,
+              opts.apiKey
+            );
+            result.sources.push(...refetch.sources);
+            if (refetch.indicationText) {
+              result.labelIndicationText = refetch.indicationText;
+              result.indicationApplicationNumber = result.applicationNumber;
+              result.currentIndications = undefined;
+            } else if (result.labelIndicationText) {
+              result.indicationApplicationNumber =
+                result.pipelineApplicationNumber;
+            }
+          }
           emitLayerHit(7, result.normalizedName);
+        } else if (result.labelIndicationText && result.applicationNumber) {
+          // No override — indications stay attached to the pipeline-resolved
+          // application. Record the provenance explicitly so the UI can
+          // distinguish "from this app" from the override-fallback case
+          // above.
+          result.indicationApplicationNumber = result.applicationNumber;
         }
       } else if (!pipelineFinding && llmHasAnswer) {
         // Nothing else found this drug — accept the LLM if it's
