@@ -103,17 +103,53 @@ async function runRxNorm(
 //   - its approval date is at least a year earlier than the pipeline's,
 //   - the molecule appears to match (same generic_name, allowing salt
 //     forms and trivial casing differences).
-function sameMolecule(
+// Strict molecule equality for the arbiter override gate. The two names
+// match iff they are the same INN, the same INN with a salt-form suffix,
+// or the same INN with a biosimilar-style four-letter suffix. Anything
+// else returns false — including substring overlaps like "iron" vs "iron
+// sucrose" or "furosemide" vs "furosemide and amiloride" that the
+// previous includes-based check accepted (#31).
+//
+// Salt suffix list mirrors the one in src/api/openfda.ts. Filed for
+// consolidation as part of #30.
+const MOLECULE_SALT_SUFFIXES = new Set([
+  "hydrochloride", "hcl", "sodium", "potassium", "calcium", "magnesium",
+  "sulfate", "sulphate", "phosphate", "acetate", "tartrate", "succinate",
+  "fumarate", "maleate", "citrate", "tosylate", "mesylate", "besylate",
+  "edisylate", "esylate", "lactate", "gluconate", "bromide", "chloride",
+  "iodide", "nitrate", "carbonate", "bicarbonate", "hemihydrate", "dihydrate",
+  "monohydrate", "anhydrous",
+]);
+
+function isSaltFormOf(base: string, candidate: string): boolean {
+  // candidate must be "base SUFFIX" where SUFFIX is one of the salt forms
+  // (single trailing token, optionally "free base" / "base" — handled below).
+  if (!candidate.startsWith(`${base} `)) return false;
+  const tail = candidate.slice(base.length + 1).trim();
+  if (MOLECULE_SALT_SUFFIXES.has(tail)) return true;
+  if (tail === "free base" || tail === "base") return true;
+  return false;
+}
+
+function isBiosimilarOf(base: string, candidate: string): boolean {
+  // FDA biosimilar suffix: a hyphenated four-letter code, e.g.
+  // "pembrolizumab-aaaa", "filgrastim-sndz".
+  return /^[a-z]{4}$/.test(candidate.slice(base.length + 1)) &&
+    candidate.startsWith(`${base}-`);
+}
+
+export function sameMolecule(
   pipelineGeneric: string | undefined,
   llmGeneric: string | undefined
 ): boolean {
   if (!pipelineGeneric || !llmGeneric) return true; // can't disprove → allow
-  const a = pipelineGeneric.toLowerCase();
-  const b = llmGeneric.toLowerCase();
+  const a = pipelineGeneric.toLowerCase().trim();
+  const b = llmGeneric.toLowerCase().trim();
+  if (!a || !b) return false;
   if (a === b) return true;
-  // Salt-form / casing forgiveness: "tamoxifen" vs "tamoxifen citrate",
-  // "doxorubicin hydrochloride" vs "doxorubicin", etc.
-  return a.startsWith(b) || b.startsWith(a) || a.includes(b) || b.includes(a);
+  // Order-insensitive: try each direction for both salt and biosimilar.
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  return isSaltFormOf(shorter, longer) || isBiosimilarOf(shorter, longer);
 }
 
 // Detect when the user's query is asking about a specific branded product

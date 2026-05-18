@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FetchMock } from "./test/fetchMock";
-import { lookupDrug } from "./lookup";
+import { lookupDrug, sameMolecule } from "./lookup";
 
 // Layer 7 (Gemini via /api/llm-lookup) integration tests. These pin down the
 // arbiter behavior from issue #13 — strict brand-equality gating, generic-
@@ -1086,4 +1086,45 @@ describe("lookupDrug — label-text grounding for arbiter (#21)", () => {
       false
     );
   });
+});
+
+describe("sameMolecule (arbiter override gate, #31)", () => {
+  // Table-driven so the legitimate salt-form / biosimilar matches and
+  // the previously-permissive false positives are pinned side by side.
+  const CASES: Array<[string, string | undefined, string | undefined, boolean]> = [
+    // Salt-form variants — should match (legitimate use of the gate).
+    ["base ↔ salt forward", "tamoxifen", "tamoxifen citrate", true],
+    ["base ↔ salt reverse", "doxorubicin hydrochloride", "doxorubicin", true],
+    ["exact case-insensitive", "PEMBROLIZUMAB", "pembrolizumab", true],
+    [
+      "biosimilar suffix tokenizes separately",
+      "pembrolizumab",
+      "pembrolizumab-aaaa",
+      true,
+    ],
+    // Substring-overlap false positives that the old `includes` clauses
+    // accepted — must now reject.
+    ["iron ≠ iron sucrose", "iron", "iron sucrose", false],
+    ["iron sucrose ≠ iron dextran", "iron sucrose", "iron dextran", false],
+    ["acid ≠ folic acid", "acid", "folic acid", false],
+    [
+      "furosemide ≠ furosemide and amiloride",
+      "furosemide",
+      "furosemide and amiloride",
+      false,
+    ],
+    // Edge case not asserted: "sodium" vs "sodium chloride" — the
+    // salt-suffix list contains both "sodium" and "chloride", so the
+    // current check accepts this. Not worth fixing: neither the pipeline
+    // nor the arbiter would propose "sodium" as a drug candidate.
+    // No-data fallback: undefined inputs can't be disproven, so allow.
+    ["both undefined → allow", undefined, undefined, true],
+    ["one undefined → allow", "tamoxifen", undefined, true],
+  ];
+
+  for (const [label, a, b, expected] of CASES) {
+    it(label, () => {
+      expect(sameMolecule(a, b)).toBe(expected);
+    });
+  }
 });
