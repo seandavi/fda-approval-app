@@ -292,6 +292,7 @@ function SourcesBlock({ result }: { result: DrugResult }) {
                     target="_blank"
                     rel="noreferrer"
                     title={s.url}
+                    aria-label={`Open ${s.api} request URL in a new tab`}
                     className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-inset ring-slate-200 bg-white hover:bg-slate-50 hover:text-violet-700 hover:ring-violet-300"
                   >
                     Open

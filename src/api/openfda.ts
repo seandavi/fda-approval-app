@@ -1,3 +1,4 @@
+import { sameMolecule } from "../molecule";
 import type { ApprovalStatus, ResolvedVia, SourceHit } from "../types";
 
 const OPENFDA_BASE = "https://api.fda.gov";
@@ -322,10 +323,18 @@ export async function queryOpenFdaDrugsFda(
   // application for the same molecule, the molecule is still on the market
   // — keep the winner's identity (original NDA appnum + date) but report
   // status as "approved". Same logic as within interpretDrugsFda but at
-  // the brand+generic merge boundary.
+  // the brand+generic merge boundary. Gated on same-molecule so brand
+  // and generic queries that happen to resolve to different molecules
+  // can't cross-promote each other (post-#36 review).
   const loser = winner === byBrand ? byGeneric : byBrand;
+  const sameMoleculeAsLoser = sameMolecule(
+    winner.genericName,
+    loser.genericName
+  );
   const promoted =
-    winner.status === "discontinued" && loser.status === "approved"
+    winner.status === "discontinued" &&
+    loser.status === "approved" &&
+    sameMoleculeAsLoser
       ? { ...winner, status: "approved" as const }
       : winner;
 

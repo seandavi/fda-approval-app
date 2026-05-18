@@ -686,6 +686,75 @@ describe("queryOpenFdaDrugsFda — brand/generic merge (regression #13)", () => 
     expect(r.status).toBe("approved");
   });
 
+  it("does NOT promote cross-query when winner and loser are different molecules (post-#36 review)", async () => {
+    // Pathological case: brand search and generic search happen to
+    // resolve to candidates with different generic names. The promotion
+    // logic must not flip status just because the loser is approved —
+    // we'd be claiming "molecule X is still on the market" using
+    // molecule Y's approval as evidence.
+    mock.on(/openfda\.brand_name:"oddquery"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          application_number: "ANDA111111",
+          sponsor_name: "GENERIC INC",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20150101",
+            },
+          ],
+          products: [
+            { marketing_status: "Prescription", brand_name: "ODDQUERY" },
+          ],
+          openfda: {
+            brand_name: ["ODDQUERY"],
+            generic_name: ["UNRELATED ALPHA"],
+            substance_name: ["UNRELATED ALPHA"],
+          },
+        },
+      ],
+    });
+    mock.on(/openfda\.generic_name:"oddquery"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          application_number: "NDA222222",
+          sponsor_name: "ORIGINATOR INC",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20000101",
+            },
+          ],
+          products: [
+            { marketing_status: "Discontinued", brand_name: "ODDQUERY" },
+          ],
+          openfda: {
+            brand_name: ["ODDQUERY"],
+            generic_name: ["UNRELATED BETA"],
+            substance_name: ["UNRELATED BETA"],
+          },
+        },
+      ],
+    });
+    mock.on("/drug/label.json", EMPTY_LABEL);
+    mock.on("/drug/ndc.json", EMPTY_NDC);
+    mock.install();
+
+    const r = await lookupDrug("oddquery", {
+      ...OPTS,
+      enableLlmProxy: false,
+    });
+
+    expect(r.applicationNumber).toBe("NDA222222");
+    // Different molecules → no cross-query promotion. Status stays as
+    // the winning candidate's actual status (discontinued).
+    expect(r.status).toBe("discontinued");
+  });
+
   it("keeps status discontinued when NO sibling application is approved (no false promotion)", async () => {
     // Only the discontinued NDA exists. No sibling — status stays
     // discontinued. (Guards against an over-eager promotion that would
@@ -1101,6 +1170,20 @@ describe("sameMolecule (arbiter override gate, #31)", () => {
       "pembrolizumab",
       "pembrolizumab-aaaa",
       true,
+    ],
+    // Multi-token salt tail (post-#36 Copilot review) — openFDA does
+    // emit forms like "doxorubicin hydrochloride monohydrate".
+    [
+      "salt + hydrate suffix",
+      "doxorubicin",
+      "doxorubicin hydrochloride monohydrate",
+      true,
+    ],
+    [
+      "salt + hemihydrate suffix",
+      "pamidronate",
+      "pamidronate disodium hemihydrate",
+      false, // disodium isn't in the salt list — guards against accidental over-acceptance
     ],
     // Substring-overlap false positives that the old `includes` clauses
     // accepted — must now reject.

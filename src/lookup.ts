@@ -94,63 +94,11 @@ async function runRxNorm(
   return null;
 }
 
-// Decide whether the LLM's answer is strong enough to override the
-// deterministic pipeline's finding. Conservative on purpose: the model
-// confidently fabricates application numbers in some cases (e.g. claiming
-// an NDA for an OTC monograph drug), so we only override when:
-//   - the model explicitly said it was correcting,
-//   - it returned high confidence,
-//   - its approval date is at least a year earlier than the pipeline's,
-//   - the molecule appears to match (same generic_name, allowing salt
-//     forms and trivial casing differences).
-// Strict molecule equality for the arbiter override gate. The two names
-// match iff they are the same INN, the same INN with a salt-form suffix,
-// or the same INN with a biosimilar-style four-letter suffix. Anything
-// else returns false — including substring overlaps like "iron" vs "iron
-// sucrose" or "furosemide" vs "furosemide and amiloride" that the
-// previous includes-based check accepted (#31).
-//
-// Salt suffix list mirrors the one in src/api/openfda.ts. Filed for
-// consolidation as part of #30.
-const MOLECULE_SALT_SUFFIXES = new Set([
-  "hydrochloride", "hcl", "sodium", "potassium", "calcium", "magnesium",
-  "sulfate", "sulphate", "phosphate", "acetate", "tartrate", "succinate",
-  "fumarate", "maleate", "citrate", "tosylate", "mesylate", "besylate",
-  "edisylate", "esylate", "lactate", "gluconate", "bromide", "chloride",
-  "iodide", "nitrate", "carbonate", "bicarbonate", "hemihydrate", "dihydrate",
-  "monohydrate", "anhydrous",
-]);
-
-function isSaltFormOf(base: string, candidate: string): boolean {
-  // candidate must be "base SUFFIX" where SUFFIX is one of the salt forms
-  // (single trailing token, optionally "free base" / "base" — handled below).
-  if (!candidate.startsWith(`${base} `)) return false;
-  const tail = candidate.slice(base.length + 1).trim();
-  if (MOLECULE_SALT_SUFFIXES.has(tail)) return true;
-  if (tail === "free base" || tail === "base") return true;
-  return false;
-}
-
-function isBiosimilarOf(base: string, candidate: string): boolean {
-  // FDA biosimilar suffix: a hyphenated four-letter code, e.g.
-  // "pembrolizumab-aaaa", "filgrastim-sndz".
-  return /^[a-z]{4}$/.test(candidate.slice(base.length + 1)) &&
-    candidate.startsWith(`${base}-`);
-}
-
-export function sameMolecule(
-  pipelineGeneric: string | undefined,
-  llmGeneric: string | undefined
-): boolean {
-  if (!pipelineGeneric || !llmGeneric) return true; // can't disprove → allow
-  const a = pipelineGeneric.toLowerCase().trim();
-  const b = llmGeneric.toLowerCase().trim();
-  if (!a || !b) return false;
-  if (a === b) return true;
-  // Order-insensitive: try each direction for both salt and biosimilar.
-  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
-  return isSaltFormOf(shorter, longer) || isBiosimilarOf(shorter, longer);
-}
+// Override-gate molecule check lives in src/molecule.ts so api/openfda.ts
+// can reuse it for the cross-query sibling-approved promotion without a
+// circular import.
+import { sameMolecule } from "./molecule";
+export { sameMolecule };
 
 // Detect when the user's query is asking about a specific branded product
 // rather than a molecule. Brand-specificity is strict: the query must
