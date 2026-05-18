@@ -144,8 +144,10 @@ export function App() {
               FDA Drug Approval Lookup
             </h1>
             <p className="text-xs text-violet-200 mt-0.5">
-              Resolve drug names — brands, INNs, or internal codes — across
-              openFDA, RxNorm, ChEMBL, and ClinicalTrials.gov.
+              Resolve drug names — brands, INNs, or internal codes — to
+              their canonical FDA application and original approval date,
+              across openFDA, RxNorm, ChEMBL, ClinicalTrials.gov, and an
+              LLM arbiter.
             </p>
           </div>
           <div className="flex items-center gap-4">
