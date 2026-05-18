@@ -71,8 +71,8 @@ const PIPELINE: LayerStep[] = [
   },
   {
     n: 7,
-    title: "LLM fallback (Gemini via Vertex AI)",
-    detail: "Last-resort layer for drugs the prior API layers couldn't resolve — useful for older drugs whose original NDA predates openFDA's online data window (e.g. Cosmegen 1964, Velban 1961, Cytosar-U 1969). The lookup is proxied through a server-side Netlify Function that authenticates to Google Vertex AI with a project-owned service account; no user-side API key is needed. Results from this layer are flagged with the model's confidence and rationale so you can audit them — and you should, since LLMs can hallucinate plausible-looking NDA numbers.",
+    title: "LLM arbiter (Gemini via Vertex AI)",
+    detail: "Always runs on resolved candidates (not just fallbacks). The arbiter receives the deterministic-pipeline finding plus the candidate's current FDA label `indications_and_usage` text as grounding context, then either confirms the pipeline, corrects it with an earlier original approval (useful for drugs whose innovator NDA predates openFDA — Cosmegen 1964, Velban 1961, Cytosar-U 1969), or flags uncertainty. It also extracts the verbatim current FDA-label indications and a best-guess original-approval indication. Proxied through a Netlify Function that authenticates to Vertex AI with a project-owned service account; no user-side LLM key is needed. The pipeline applies strict gates before accepting overrides (high confidence, ≥1 year earlier, same molecule, brand-equality for brand-specific queries).",
   },
 ];
 
@@ -98,18 +98,35 @@ export function AboutPage() {
         <p className="text-slate-600">
           This tool takes a list of drug names — brand names, generic INN names,
           or internal company codes — and resolves each one against a layered set
-          of public APIs to determine its FDA approval status. It runs entirely
-          in your browser; no data leaves your machine except to call the public
-          APIs listed below.
+          of public APIs to determine its FDA approval status and the conditions
+          it's currently approved to treat. It runs entirely in your browser;
+          no data leaves your machine except to call the public APIs listed
+          below (and the LLM arbiter proxy, when enabled).
         </p>
       </div>
 
+      <Section title="What problem this solves">
+        <p>
+          Drugs@FDA is the authoritative source for "is this drug FDA approved?"
+          but it's tedious to use at the scale of clinical research workflows —
+          one name at a time, brand vs. generic confusion, no surface for
+          research codes like MK-3475, and indication text buried in
+          PDF-shaped labels. This app gives you a paste-a-list interface that
+          unifies the six relevant public APIs plus an LLM arbiter, returns
+          the canonical original-approval record per drug, and pulls the
+          verbatim FDA-label indications out of the current label.
+        </p>
+      </Section>
+
       <Section title="Data flow">
         <p>
-          Each name is run through a seven-layer pipeline. The pipeline
-          short-circuits as soon as an approved or discontinued record is
-          confirmed, but every API call is recorded as a SourceHit so you can
-          audit exactly how a result was reached (click the ▸ on any row).
+          Each name is run through a seven-layer pipeline. Layers 1-6
+          short-circuit as soon as an approved or discontinued record is
+          confirmed. Layer 7 (the LLM arbiter) then runs on every approved
+          candidate to verify-or-correct against the current FDA label and
+          to enumerate the label's indications. Every API call is recorded
+          as a SourceHit, so you can audit exactly how a result was reached
+          (click any row to open the detail panel).
         </p>
         <ol className="space-y-3 pl-0 list-none">
           {PIPELINE.map((step) => (
@@ -130,6 +147,47 @@ export function AboutPage() {
         <p className="text-xs text-slate-500">
           A 7-day localStorage cache (configurable) skips this pipeline entirely
           for repeat queries.
+        </p>
+      </Section>
+
+      <Section title="Indications (current FDA label, verbatim)">
+        <p>
+          When the deterministic pipeline resolves a drug, the app fetches
+          that application's current FDA label{" "}
+          <code className="text-xs bg-slate-100 px-1 rounded">
+            indications_and_usage
+          </code>{" "}
+          section and includes it in the arbiter prompt as grounding context.
+          The arbiter then extracts two indication fields:
+        </p>
+        <ul className="space-y-2 list-disc pl-5">
+          <li>
+            <span className="font-medium text-slate-900">
+              Current indications
+            </span>{" "}
+            — every distinct indication on the current label, returned
+            verbatim. Biomarker requirements ("EGFR T790M mutation-positive"),
+            lines of therapy, age cohorts, and combination partners are
+            preserved exactly as the FDA wrote them. No taxonomy
+            normalization (MeSH, EFO) — those distinctions are part of what
+            the FDA approved.
+          </li>
+          <li>
+            <span className="font-medium text-slate-900">
+              Original indication
+            </span>{" "}
+            — best-effort first-approval indication, anchored to the
+            candidate's approval date. This draws on the model's training
+            knowledge since the current label often reflects only later
+            supplements; it's marked with an "LLM" badge in the UI to
+            signal that it's less rigorously grounded than the current list.
+          </li>
+        </ul>
+        <p className="text-xs text-slate-500">
+          The raw label text the arbiter saw is also surfaced in the detail
+          panel (collapsed by default), so anyone doing serious work can
+          read past the LLM-extracted list and verify against the canonical
+          FDA Drugs@FDA label.
         </p>
       </Section>
 
@@ -216,6 +274,18 @@ export function AboutPage() {
           <li>
             ClinicalTrials.gov INN extraction is heuristic. A drug-only-in-trials
             with no INN assigned will remain not_found.
+          </li>
+          <li>
+            Current indications are pulled from the resolved application's
+            current label only — withdrawn indications (e.g. Avastin in
+            metastatic breast cancer, removed 2011) are not present.
+            Drugs with multiple applications (oral and IV formulations,
+            successor sponsors) yield indications from one canonical label.
+          </li>
+          <li>
+            The original-approval indication relies on the model's training
+            knowledge and is not authoritatively grounded; verify against
+            the FDA approval history before citing it.
           </li>
         </ul>
       </Section>
