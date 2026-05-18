@@ -116,19 +116,28 @@ function sameMolecule(
 }
 
 // Detect when the user's query is asking about a specific branded product
-// rather than a molecule. If the query string is contained in (or contains)
-// the pipeline's resolved brand_name, treat the query as product-specific.
-// This blocks the LLM from "correcting" e.g. "Rybrevant Faspro" (2025
-// co-formulation with hyaluronidase) to "Rybrevant" (2021 IV monotherapy):
-// same molecule, different product, different approval.
+// rather than a molecule. The query is "brand-specific" when it textually
+// matches the pipeline brand_name AND the brand_name is a distinct
+// commercial identity — not just the generic name spelled out in the
+// brand field (which is how openFDA labels ANDAs like CYTARABINE,
+// ERLOTINIB, VINBLASTINE SULFATE). A query that matches the generic
+// (e.g. "tamoxifen" against generic="TAMOXIFEN CITRATE") is treated as a
+// molecule query even if it superficially overlaps with the brand_name.
 function queryIsBrandSpecific(
   query: string,
-  pipelineBrand: string | undefined
+  pipelineBrand: string | undefined,
+  pipelineGeneric: string | undefined
 ): boolean {
   if (!pipelineBrand) return false;
   const q = query.toLowerCase().trim();
   const b = pipelineBrand.toLowerCase().trim();
   if (q.length < 4 || b.length < 4) return false;
+  // If the query matches the generic name (exact or substring), the user is
+  // asking about the molecule — never treat as brand-specific.
+  if (pipelineGeneric) {
+    const g = pipelineGeneric.toLowerCase().trim();
+    if (g === q || g.includes(q) || q.includes(g)) return false;
+  }
   return b.includes(q) || q.includes(b);
 }
 
@@ -151,7 +160,13 @@ function shouldOverride(
   // overridden if the LLM's earlier approval is for the *same* brand —
   // otherwise we'd swap in a sibling product with the same molecule but a
   // different formulation/route.
-  if (queryIsBrandSpecific(result.normalizedName, result.brandName)) {
+  if (
+    queryIsBrandSpecific(
+      result.normalizedName,
+      result.brandName,
+      result.genericName
+    )
+  ) {
     const pb = (result.brandName ?? "").toLowerCase().trim();
     const lb = (llm.brandName ?? "").toLowerCase().trim();
     if (!pb || !lb) return false;
