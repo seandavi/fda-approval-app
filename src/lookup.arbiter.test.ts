@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FetchMock } from "./test/fetchMock";
-import { lookupDrug } from "./lookup";
+import { lookupDrug, sameMolecule } from "./lookup";
 
 // Layer 7 (Gemini via /api/llm-lookup) integration tests. These pin down the
 // arbiter behavior from issue #13 — strict brand-equality gating, generic-
@@ -549,6 +549,250 @@ describe("queryOpenFdaDrugsFda — brand/generic merge (regression #13)", () => 
     expect(r.applicationNumber).toBe("NDA020896");
     expect(r.approvalDate).toBe("1998-04-30");
     expect(r.brandName).toBe("XELODA");
+    // Post-#33: Xeloda's products are Discontinued but an approved sibling
+    // ANDA exists for the same molecule (CAPECITABINE branded as itself).
+    // The molecule is still on the market — status promotes to "approved"
+    // while keeping the NDA's identity for the original-approval record.
+    expect(r.status).toBe("approved");
+  });
+
+  it("promotes status to approved when winning NDA's products are discontinued but a sibling ANDA is active (cross-query, #33 duloxetine)", async () => {
+    // Brand search returns an approved generic ANDA; generic search
+    // returns the original NDA but with all products Discontinued. The
+    // merged winner is the NDA (higher rank) — but the molecule is still
+    // approved because the sibling ANDA is active.
+    mock.on(/openfda\.brand_name:"duloxetine"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          application_number: "ANDA090778",
+          sponsor_name: "TORRENT PHARMS LTD",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20131211",
+            },
+          ],
+          products: [
+            { marketing_status: "Prescription", brand_name: "DULOXETINE" },
+          ],
+          openfda: {
+            brand_name: ["DULOXETINE"],
+            generic_name: ["DULOXETINE HYDROCHLORIDE"],
+            substance_name: ["DULOXETINE HYDROCHLORIDE"],
+          },
+        },
+      ],
+    });
+    mock.on(/openfda\.generic_name:"duloxetine"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          application_number: "NDA021427",
+          sponsor_name: "LILLY",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20040803",
+            },
+          ],
+          products: [
+            { marketing_status: "Discontinued", brand_name: "CYMBALTA" },
+          ],
+          openfda: {
+            brand_name: ["CYMBALTA"],
+            generic_name: ["DULOXETINE HYDROCHLORIDE"],
+            substance_name: ["DULOXETINE HYDROCHLORIDE"],
+          },
+        },
+      ],
+    });
+    mock.on("/drug/label.json", EMPTY_LABEL);
+    mock.on("/drug/ndc.json", EMPTY_NDC);
+    mock.install();
+
+    const r = await lookupDrug("duloxetine", {
+      ...OPTS,
+      enableLlmProxy: false,
+    });
+
+    expect(r.applicationNumber).toBe("NDA021427");
+    expect(r.approvalDate).toBe("2004-08-03");
+    expect(r.brandName).toBe("CYMBALTA");
+    expect(r.status).toBe("approved");
+  });
+
+  it("promotes status to approved when winning NDA is discontinued but a sibling ANDA in the same query is active (within-query, #33)", async () => {
+    // Both NDA (discontinued) and ANDA (approved) hit the same generic-
+    // name query. NDA wins on rank — without the within-query fix, status
+    // would be reported as discontinued.
+    mock.on(/openfda\.brand_name:"foodrug"/, EMPTY_FDA);
+    mock.on(/openfda\.generic_name:"foodrug"/, {
+      meta: { results: { total: 2 } },
+      results: [
+        {
+          application_number: "NDA111111",
+          sponsor_name: "ORIGINATOR INC",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20000101",
+            },
+          ],
+          products: [
+            { marketing_status: "Discontinued", brand_name: "FOOBRAND" },
+          ],
+          openfda: {
+            brand_name: ["FOOBRAND"],
+            generic_name: ["FOODRUG"],
+            substance_name: ["FOODRUG"],
+          },
+        },
+        {
+          application_number: "ANDA222222",
+          sponsor_name: "GENERIC INC",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20150101",
+            },
+          ],
+          products: [
+            { marketing_status: "Prescription", brand_name: "FOODRUG" },
+          ],
+          openfda: {
+            brand_name: ["FOODRUG"],
+            generic_name: ["FOODRUG"],
+            substance_name: ["FOODRUG"],
+          },
+        },
+      ],
+    });
+    mock.on("/drug/label.json", EMPTY_LABEL);
+    mock.on("/drug/ndc.json", EMPTY_NDC);
+    mock.install();
+
+    const r = await lookupDrug("foodrug", {
+      ...OPTS,
+      enableLlmProxy: false,
+    });
+
+    expect(r.applicationNumber).toBe("NDA111111");
+    expect(r.approvalDate).toBe("2000-01-01");
+    expect(r.status).toBe("approved");
+  });
+
+  it("does NOT promote cross-query when winner and loser are different molecules (post-#36 review)", async () => {
+    // Pathological case: brand search and generic search happen to
+    // resolve to candidates with different generic names. The promotion
+    // logic must not flip status just because the loser is approved —
+    // we'd be claiming "molecule X is still on the market" using
+    // molecule Y's approval as evidence.
+    mock.on(/openfda\.brand_name:"oddquery"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          application_number: "ANDA111111",
+          sponsor_name: "GENERIC INC",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20150101",
+            },
+          ],
+          products: [
+            { marketing_status: "Prescription", brand_name: "ODDQUERY" },
+          ],
+          openfda: {
+            brand_name: ["ODDQUERY"],
+            generic_name: ["UNRELATED ALPHA"],
+            substance_name: ["UNRELATED ALPHA"],
+          },
+        },
+      ],
+    });
+    mock.on(/openfda\.generic_name:"oddquery"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          application_number: "NDA222222",
+          sponsor_name: "ORIGINATOR INC",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "20000101",
+            },
+          ],
+          products: [
+            { marketing_status: "Discontinued", brand_name: "ODDQUERY" },
+          ],
+          openfda: {
+            brand_name: ["ODDQUERY"],
+            generic_name: ["UNRELATED BETA"],
+            substance_name: ["UNRELATED BETA"],
+          },
+        },
+      ],
+    });
+    mock.on("/drug/label.json", EMPTY_LABEL);
+    mock.on("/drug/ndc.json", EMPTY_NDC);
+    mock.install();
+
+    const r = await lookupDrug("oddquery", {
+      ...OPTS,
+      enableLlmProxy: false,
+    });
+
+    expect(r.applicationNumber).toBe("NDA222222");
+    // Different molecules → no cross-query promotion. Status stays as
+    // the winning candidate's actual status (discontinued).
+    expect(r.status).toBe("discontinued");
+  });
+
+  it("keeps status discontinued when NO sibling application is approved (no false promotion)", async () => {
+    // Only the discontinued NDA exists. No sibling — status stays
+    // discontinued. (Guards against an over-eager promotion that would
+    // mark obsolete molecules as approved.)
+    mock.on(/openfda\.brand_name:"obsolete"/, EMPTY_FDA);
+    mock.on(/openfda\.generic_name:"obsolete"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          application_number: "NDA999999",
+          sponsor_name: "WITHDRAWN INC",
+          submissions: [
+            {
+              submission_type: "ORIG",
+              submission_status: "AP",
+              submission_status_date: "19800101",
+            },
+          ],
+          products: [
+            { marketing_status: "Discontinued", brand_name: "OBSOLETE" },
+          ],
+          openfda: {
+            brand_name: ["OBSOLETE"],
+            generic_name: ["OBSOLETE"],
+            substance_name: ["OBSOLETE"],
+          },
+        },
+      ],
+    });
+    mock.on("/drug/label.json", EMPTY_LABEL);
+    mock.on("/drug/ndc.json", EMPTY_NDC);
+    mock.install();
+
+    const r = await lookupDrug("obsolete", {
+      ...OPTS,
+      enableLlmProxy: false,
+    });
+
     expect(r.status).toBe("discontinued");
   });
 });
@@ -911,4 +1155,59 @@ describe("lookupDrug — label-text grounding for arbiter (#21)", () => {
       false
     );
   });
+});
+
+describe("sameMolecule (arbiter override gate, #31)", () => {
+  // Table-driven so the legitimate salt-form / biosimilar matches and
+  // the previously-permissive false positives are pinned side by side.
+  const CASES: Array<[string, string | undefined, string | undefined, boolean]> = [
+    // Salt-form variants — should match (legitimate use of the gate).
+    ["base ↔ salt forward", "tamoxifen", "tamoxifen citrate", true],
+    ["base ↔ salt reverse", "doxorubicin hydrochloride", "doxorubicin", true],
+    ["exact case-insensitive", "PEMBROLIZUMAB", "pembrolizumab", true],
+    [
+      "biosimilar suffix tokenizes separately",
+      "pembrolizumab",
+      "pembrolizumab-aaaa",
+      true,
+    ],
+    // Multi-token salt tail (post-#36 Copilot review) — openFDA does
+    // emit forms like "doxorubicin hydrochloride monohydrate".
+    [
+      "salt + hydrate suffix",
+      "doxorubicin",
+      "doxorubicin hydrochloride monohydrate",
+      true,
+    ],
+    [
+      "salt + hemihydrate suffix",
+      "pamidronate",
+      "pamidronate disodium hemihydrate",
+      false, // disodium isn't in the salt list — guards against accidental over-acceptance
+    ],
+    // Substring-overlap false positives that the old `includes` clauses
+    // accepted — must now reject.
+    ["iron ≠ iron sucrose", "iron", "iron sucrose", false],
+    ["iron sucrose ≠ iron dextran", "iron sucrose", "iron dextran", false],
+    ["acid ≠ folic acid", "acid", "folic acid", false],
+    [
+      "furosemide ≠ furosemide and amiloride",
+      "furosemide",
+      "furosemide and amiloride",
+      false,
+    ],
+    // Edge case not asserted: "sodium" vs "sodium chloride" — the
+    // salt-suffix list contains both "sodium" and "chloride", so the
+    // current check accepts this. Not worth fixing: neither the pipeline
+    // nor the arbiter would propose "sodium" as a drug candidate.
+    // No-data fallback: undefined inputs can't be disproven, so allow.
+    ["both undefined → allow", undefined, undefined, true],
+    ["one undefined → allow", "tamoxifen", undefined, true],
+  ];
+
+  for (const [label, a, b, expected] of CASES) {
+    it(label, () => {
+      expect(sameMolecule(a, b)).toBe(expected);
+    });
+  }
 });

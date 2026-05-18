@@ -94,27 +94,11 @@ async function runRxNorm(
   return null;
 }
 
-// Decide whether the LLM's answer is strong enough to override the
-// deterministic pipeline's finding. Conservative on purpose: the model
-// confidently fabricates application numbers in some cases (e.g. claiming
-// an NDA for an OTC monograph drug), so we only override when:
-//   - the model explicitly said it was correcting,
-//   - it returned high confidence,
-//   - its approval date is at least a year earlier than the pipeline's,
-//   - the molecule appears to match (same generic_name, allowing salt
-//     forms and trivial casing differences).
-function sameMolecule(
-  pipelineGeneric: string | undefined,
-  llmGeneric: string | undefined
-): boolean {
-  if (!pipelineGeneric || !llmGeneric) return true; // can't disprove → allow
-  const a = pipelineGeneric.toLowerCase();
-  const b = llmGeneric.toLowerCase();
-  if (a === b) return true;
-  // Salt-form / casing forgiveness: "tamoxifen" vs "tamoxifen citrate",
-  // "doxorubicin hydrochloride" vs "doxorubicin", etc.
-  return a.startsWith(b) || b.startsWith(a) || a.includes(b) || b.includes(a);
-}
+// Override-gate molecule check lives in src/molecule.ts so api/openfda.ts
+// can reuse it for the cross-query sibling-approved promotion without a
+// circular import.
+import { sameMolecule } from "./molecule";
+export { sameMolecule };
 
 // Detect when the user's query is asking about a specific branded product
 // rather than a molecule. Brand-specificity is strict: the query must

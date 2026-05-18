@@ -62,12 +62,12 @@ export function ResultRow({ result, selected, onSelect }: Props) {
           onSelect();
         }
       }}
-      className={`border-t border-slate-200 border-l-4 cursor-pointer outline-none ${
+      className={`border-t border-slate-200 border-l-4 cursor-pointer outline-none focus-visible:bg-violet-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500 ${
         STATUS_BORDER[result.status] ?? "border-l-transparent"
       } ${
         selected
           ? "bg-violet-50 hover:bg-violet-50"
-          : "hover:bg-slate-50 focus:bg-slate-50"
+          : "hover:bg-slate-50"
       }`}
       aria-selected={selected}
     >

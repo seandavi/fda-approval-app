@@ -42,7 +42,7 @@ const PIPELINE: LayerStep[] = [
   {
     n: 1,
     title: "openFDA /drug/drugsfda",
-    detail: "Search by brand_name, then generic_name, then wildcard. We accept a result only when its substance list is single-ingredient and the substance/brand/generic matches the query — this avoids returning combination products (e.g. aspirin → Aggrenox). On any submission with submission_status='AP', record the application number and approval date. If all products are marked Discontinued, set status accordingly.",
+    detail: "Runs brand-name and generic-name searches in parallel, then picks the higher-rank candidate (NDA/BLA preferred over ANDA) with the earliest approval date. Match acceptance is strict: brand_name exact match, or substance/generic exact (or salt-form) match on a single-ingredient product — this avoids combination-product mismatches like aspirin → Aggrenox. If the chosen application's products are all marked Discontinued but a sibling application for the same molecule is approved, the molecule is reported as approved while keeping the original application's identity (date, appnum) — that's the duloxetine / Xeloda pattern from #33.",
   },
   {
     n: 2,
@@ -72,7 +72,7 @@ const PIPELINE: LayerStep[] = [
   {
     n: 7,
     title: "LLM arbiter (Gemini via Vertex AI)",
-    detail: "Always runs on resolved candidates (not just fallbacks). The arbiter receives the deterministic-pipeline finding plus the candidate's current FDA label `indications_and_usage` text as grounding context, then either confirms the pipeline, corrects it with an earlier original approval (useful for drugs whose innovator NDA predates openFDA — Cosmegen 1964, Velban 1961, Cytosar-U 1969), or flags uncertainty. It also extracts the verbatim current FDA-label indications and a best-guess original-approval indication. Proxied through a Netlify Function that authenticates to Vertex AI with a project-owned service account; no user-side LLM key is needed. The pipeline applies strict gates before accepting overrides (high confidence, ≥1 year earlier, same molecule, brand-equality for brand-specific queries).",
+    detail: "Runs on every resolved candidate AND when layers 1-6 came up empty. When the deterministic pipeline found a candidate, the arbiter receives it plus the candidate's current FDA label `indications_and_usage` text as grounding context, then either confirms the pipeline, corrects it with an earlier original approval (useful for drugs whose innovator NDA predates openFDA — Cosmegen 1964, Velban 1961, Cytosar-U 1969), or flags uncertainty. When nothing was resolved, the arbiter is asked blank-slate and its high-confidence answer becomes the result. It also extracts the verbatim current FDA-label indications and a best-guess original-approval indication. Proxied through a Netlify Function that authenticates to Vertex AI with a project-owned service account; no user-side LLM key is needed. The pipeline applies strict gates before accepting overrides (high confidence, ≥1 year earlier, same molecule, brand-equality for brand-specific queries).",
   },
 ];
 
@@ -224,9 +224,10 @@ export function AboutPage() {
           </li>
           <li>
             <span className="font-medium text-slate-900">Native fetch</span>{" "}
-            for every API call. Tailwind for styling.{" "}
-            <code className="text-xs bg-slate-100 px-1 rounded">useReducer</code>
-            -free local state.
+            for every API call. Tailwind for styling. Two-phase{" "}
+            <code className="text-xs bg-slate-100 px-1 rounded">phase</code>{" "}
+            state machine (input → results) keeps the dashboard layout
+            without router overhead.
           </li>
           <li>
             <span className="font-medium text-slate-900">5-way concurrency</span>{" "}

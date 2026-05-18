@@ -1,3 +1,4 @@
+import { sameMolecule } from "../molecule";
 import type { ApprovalStatus, ResolvedVia, SourceHit } from "../types";
 
 const OPENFDA_BASE = "https://api.fda.gov";
@@ -161,6 +162,14 @@ interface RankedMatch {
   rank: number;
 }
 
+function resultAllDiscontinued(r: DrugsFdaResult): boolean {
+  const products = r.products ?? [];
+  return (
+    products.length > 0 &&
+    products.every((p) => p.marketing_status === "Discontinued")
+  );
+}
+
 function interpretDrugsFda(
   query: string,
   results: DrugsFdaResult[]
@@ -194,12 +203,22 @@ function interpretDrugsFda(
   const best = candidates[0];
   const r = best.result;
 
-  const allDiscontinued =
-    (r.products ?? []).length > 0 &&
-    (r.products ?? []).every((p) => p.marketing_status === "Discontinued");
+  // The winner has the "original" identity (preferred app type, earliest
+  // date). But if the winner's products are all discontinued while a
+  // sibling candidate for the same molecule is still being marketed, the
+  // *molecule* is still approved — only this specific product line is
+  // gone (e.g. duloxetine #33: original Cymbalta NDA021427 is
+  // discontinued but the molecule lives on in approved generic ANDAs).
+  // Keep the winner's appnum + date but promote status to "approved".
+  const winnerDiscontinued = resultAllDiscontinued(r);
+  const anyOtherApproved = candidates
+    .slice(1)
+    .some((c) => !resultAllDiscontinued(c.result));
+  const status =
+    winnerDiscontinued && !anyOtherApproved ? "discontinued" : "approved";
 
   return {
-    status: allDiscontinued ? "discontinued" : "approved",
+    status,
     applicationNumber: r.application_number,
     applicationType: appType(r.application_number),
     brandName: r.openfda?.brand_name?.[0] ?? r.products?.[0]?.brand_name,
@@ -291,11 +310,35 @@ export async function queryOpenFdaDrugsFda(
   // result. Pre-fix this short-circuited at brand: "capecitabine" matched
   // generic ANDAs labeled brand_name=CAPECITABINE and never saw Xeloda
   // NDA020896 (1998) sitting in the generic-search result set (#13).
-  const byBrand = await queryDrugsFda("brand_name", name, apiKey);
-  const byGeneric = await queryDrugsFda("generic_name", name, apiKey);
+  // The two searches are independent — parallelize them (#29).
+  const [byBrand, byGeneric] = await Promise.all([
+    queryDrugsFda("brand_name", name, apiKey),
+    queryDrugsFda("generic_name", name, apiKey),
+  ]);
   const combinedSources = [...byBrand.sources, ...byGeneric.sources];
   const winner = preferEarlierOriginal(byBrand, byGeneric);
-  return { ...winner, sources: combinedSources };
+
+  // Cross-query sibling-approved promotion (#33). If the winner's products
+  // are discontinued but the losing query found an approved sibling
+  // application for the same molecule, the molecule is still on the market
+  // — keep the winner's identity (original NDA appnum + date) but report
+  // status as "approved". Same logic as within interpretDrugsFda but at
+  // the brand+generic merge boundary. Gated on same-molecule so brand
+  // and generic queries that happen to resolve to different molecules
+  // can't cross-promote each other (post-#36 review).
+  const loser = winner === byBrand ? byGeneric : byBrand;
+  const sameMoleculeAsLoser = sameMolecule(
+    winner.genericName,
+    loser.genericName
+  );
+  const promoted =
+    winner.status === "discontinued" &&
+    loser.status === "approved" &&
+    sameMoleculeAsLoser
+      ? { ...winner, status: "approved" as const }
+      : winner;
+
+  return { ...promoted, sources: combinedSources };
 }
 
 export async function queryOpenFdaLabel(
