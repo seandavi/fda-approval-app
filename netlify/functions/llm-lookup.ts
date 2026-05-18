@@ -11,12 +11,15 @@
 // Optional:
 //   GCP_PROJECT_ID    -- Vertex project (defaults to project_id from the JSON)
 //   VERTEX_REGION     -- default "global" (Gemini 3.x only lives at the global endpoint)
-//   VERTEX_MODEL      -- default "gemini-3.1-flash"
-//                        Bump to gemini-3.1-pro-preview / future GA via env var.
+//   VERTEX_MODEL      -- default "gemini-3.1-pro-preview"
 //                        Was "gemini-3.1-flash-lite" pre-#40/#41; Flash-Lite
 //                        unreliably enumerated indications on big oncology
 //                        labels (returned null current_indications or empty
-//                        response on Keytruda's 23 KB label).
+//                        response on Keytruda's 23 KB label). Vertex AI's
+//                        3.1 family currently ships only Lite and Pro
+//                        tiers — no middle Flash — so we default to Pro.
+//                        Drop back to flash-lite via env var if cost
+//                        dominates correctness for the deployment.
 //
 // Cost controls baked in:
 //   - max_output_tokens hard-capped server-side.
@@ -28,7 +31,7 @@
 import { GoogleGenAI, type Content } from "@google/genai";
 
 const DEFAULT_REGION = process.env.VERTEX_REGION ?? "global";
-const DEFAULT_MODEL = process.env.VERTEX_MODEL ?? "gemini-3.1-flash";
+const DEFAULT_MODEL = process.env.VERTEX_MODEL ?? "gemini-3.1-pro-preview";
 // Caps the *generated* (output + thinking) token budget per call. Gemini 3
 // thinking tokens count against this, and the budget can grow with prompt
 // complexity — a 24 KB label grounding payload was eating the entire
