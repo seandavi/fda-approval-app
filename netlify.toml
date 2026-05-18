@@ -10,6 +10,17 @@
   # explicit and survives directory layout changes.
   functions = "netlify/functions"
 
+# Gemini 3.1 Pro preview on Keytruda-class labels takes 12-20s end-to-end.
+# Netlify's default sync-function timeout is 10s, which surfaced as the
+# generic "HTTP 502: An unknown error has occurred" on PR #42 when the
+# function was killed mid-call. Bumping to the standard-tier max (26s)
+# gives the slowest legitimate Pro responses room to complete; if a call
+# really does hang past 26s, the timeout fires and the client renders
+# the existing "LLM arbiter unavailable" tile (#32) — same UX as before,
+# just with fewer false positives.
+[functions."llm-lookup"]
+  timeout = 26
+
 [build.environment]
   NODE_VERSION = "20"
   # Surface the git SHA to the client bundle so the footer and CSV exports
