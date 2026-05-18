@@ -9,18 +9,8 @@
 // four-letter suffix ("pembrolizumab-aaaa"). Anything else returns false
 // — substring overlaps like "iron" vs "iron sucrose" or "furosemide" vs
 // "furosemide and amiloride" are rejected.
-//
-// The salt-suffix list mirrors the one in src/api/openfda.ts; #30 will
-// consolidate the salt-form helpers into a single canonical source.
 
-const MOLECULE_SALT_SUFFIXES = new Set([
-  "hydrochloride", "hcl", "sodium", "potassium", "calcium", "magnesium",
-  "sulfate", "sulphate", "phosphate", "acetate", "tartrate", "succinate",
-  "fumarate", "maleate", "citrate", "tosylate", "mesylate", "besylate",
-  "edisylate", "esylate", "lactate", "gluconate", "bromide", "chloride",
-  "iodide", "nitrate", "carbonate", "bicarbonate", "hemihydrate", "dihydrate",
-  "monohydrate", "anhydrous",
-]);
+import { SALT_SUFFIX_SET } from "./api/salts";
 
 // candidate must be "base SUFFIX" or "base SUFFIX trailing-tokens" where
 // SUFFIX is a recognized salt form. Allows tails like "hydrochloride
@@ -36,7 +26,7 @@ function isSaltFormOf(base: string, candidate: string): boolean {
   const head = firstSpace < 0 ? tail : tail.slice(0, firstSpace);
   if (head === "free" && tail.startsWith("free base")) return true;
   if (head === "base") return true;
-  return MOLECULE_SALT_SUFFIXES.has(head);
+  return SALT_SUFFIX_SET.has(head);
 }
 
 function isBiosimilarOf(base: string, candidate: string): boolean {

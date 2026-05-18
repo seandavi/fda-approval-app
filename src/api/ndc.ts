@@ -1,4 +1,6 @@
 import type { ApprovalStatus, ResolvedVia, SourceHit } from "../types";
+import { fetchWithBackoff, redactApiKey as redact } from "./_http";
+import { SALT_SUFFIX_RE } from "./salts";
 
 const OPENFDA_BASE = "https://api.fda.gov";
 
@@ -28,19 +30,6 @@ interface NdcResult {
   active_ingredients?: ActiveIngredient[];
 }
 
-function redact(url: string): string {
-  return url.replace(/([?&]api_key=)[^&]*/i, "$1REDACTED");
-}
-
-async function fetchWithBackoff(url: string): Promise<Response> {
-  const r = await fetch(url);
-  if (r.status === 429) {
-    await new Promise((res) => setTimeout(res, 2000));
-    return fetch(url);
-  }
-  return r;
-}
-
 // Map marketing_category vocabulary to our internal status. Approval-path
 // categories take precedence; OTC monograph is its own status; everything
 // else marketed-without-approval collapses into unapproved_marketed.
@@ -54,16 +43,6 @@ function statusFor(category: string | undefined): ApprovalStatus | undefined {
   if (c.startsWith("UNAPPROVED")) return "unapproved_marketed";
   return undefined; // BULK INGREDIENT, KIT, STANDARDIZED ALLERGENIC, etc.
 }
-
-// Common salt suffixes openFDA NDC records use. Mirrors openfda.ts so we
-// match "tamoxifen" against an "tamoxifen citrate" NDC ingredient.
-const SALT_SUFFIX_RE = new RegExp(
-  "^(?:hydrochloride|hcl|sodium|potassium|calcium|magnesium|sulfate|sulphate|" +
-    "phosphate|acetate|tartrate|succinate|fumarate|maleate|citrate|tosylate|" +
-    "mesylate|besylate|edisylate|esylate|lactate|gluconate|bromide|chloride|" +
-    "iodide|nitrate|carbonate|bicarbonate|hemihydrate|dihydrate|monohydrate|" +
-    "anhydrous|free base|base)(?:\\s|$)"
-);
 
 function nameMatches(query: string, candidate: string | undefined): boolean {
   if (!candidate) return false;
