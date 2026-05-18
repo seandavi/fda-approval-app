@@ -69,6 +69,11 @@ const PIPELINE: LayerStep[] = [
     title: "ClinicalTrials.gov v2",
     detail: "Last resort. We scan top study results for interventions whose canonical name contains the query, then pick an INN-shaped otherName as the translated name and re-run layers 1-4.",
   },
+  {
+    n: 7,
+    title: "LLM fallback (Gemini via Vertex AI)",
+    detail: "Last-resort layer for drugs the prior API layers couldn't resolve — useful for older drugs whose original NDA predates openFDA's online data window (e.g. Cosmegen 1964, Velban 1961, Cytosar-U 1969). The lookup is proxied through a server-side Netlify Function that authenticates to Google Vertex AI with a project-owned service account; no user-side API key is needed. Results from this layer are flagged with the model's confidence and rationale so you can audit them — and you should, since LLMs can hallucinate plausible-looking NDA numbers.",
+  },
 ];
 
 interface SectionProps {
@@ -101,7 +106,7 @@ export function AboutPage() {
 
       <Section title="Data flow">
         <p>
-          Each name is run through a six-layer pipeline. The pipeline
+          Each name is run through a seven-layer pipeline. The pipeline
           short-circuits as soon as an approved or discontinued record is
           confirmed, but every API call is recorded as a SourceHit so you can
           audit exactly how a result was reached (click the ▸ on any row).

@@ -6,6 +6,9 @@
 [build]
   command   = "npm run build"
   publish   = "dist"
+  # Netlify auto-detects netlify/functions/, but pinning makes intent
+  # explicit and survives directory layout changes.
+  functions = "netlify/functions"
 
 [build.environment]
   NODE_VERSION = "20"
@@ -13,6 +16,14 @@
   # can show which version produced a result. COMMIT_REF is set by Netlify
   # for every deploy.
   VITE_GIT_SHA = "$COMMIT_REF"
+
+# Route /api/* to Netlify Functions before the SPA catch-all below.
+# The llm-lookup function declares its own path internally, but listing the
+# redirect makes the API surface visible at a glance.
+[[redirects]]
+  from   = "/api/llm-lookup"
+  to     = "/.netlify/functions/llm-lookup"
+  status = 200
 
 # SPA-style routing: nothing else handles /lookup or /about, but if you add
 # client-side routes later this rewrite keeps deep links working.

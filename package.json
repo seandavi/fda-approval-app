@@ -12,6 +12,8 @@
     "deploy:ghpages": "VITE_BASE_PATH=/fda-drug-lookup/ vite build && gh-pages -d dist"
   },
   "dependencies": {
+    "@google/genai": "^2.4.0",
+    "google-auth-library": "^9.15.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

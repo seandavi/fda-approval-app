@@ -96,22 +96,49 @@ function buildDrugsFdaUrl(
   return `${OPENFDA_BASE}/drug/drugsfda.json?${params.toString()}`;
 }
 
+// Common salt suffixes openFDA stores in product names. We treat
+// "tamoxifen citrate", "vinblastine sulfate", "doxorubicin hydrochloride"
+// etc. as strong matches for the base INN — only when the product is
+// single-ingredient (substance_name length 1), so we don't conflate combo
+// products whose generic happens to start with a queried token (issue #13).
+const SALT_SUFFIXES = [
+  "hydrochloride", "hcl", "sodium", "potassium", "calcium", "magnesium",
+  "sulfate", "sulphate", "phosphate", "acetate", "tartrate", "succinate",
+  "fumarate", "maleate", "citrate", "tosylate", "mesylate", "besylate",
+  "edisylate", "esylate", "lactate", "gluconate", "bromide", "chloride",
+  "iodide", "nitrate", "carbonate", "bicarbonate", "hemihydrate", "dihydrate",
+  "monohydrate", "anhydrous", "free base", "base",
+];
+
+function isSaltSuffixMatch(query: string, candidate: string): boolean {
+  if (!candidate.startsWith(`${query} `)) return false;
+  const tail = candidate.slice(query.length + 1);
+  return SALT_SUFFIXES.some((s) => tail === s || tail.startsWith(`${s} `));
+}
+
 // openFDA's brand_name/generic_name indexes are token-based: a query for
 // "aspirin" matches every combination product whose name contains the
 // token. Without this filter, "aspirin" resolves to ASPIRIN AND
-// EXTENDED-RELEASE DIPYRIDAMOLE (Aggrenox), which is misleading. We only
-// accept a result if it's a single-ingredient product whose ingredient
-// matches the query (#6).
+// EXTENDED-RELEASE DIPYRIDAMOLE (Aggrenox), which is misleading. We accept
+// a result only if (a) the brand_name is an exact match — even for combo
+// products like RYBREVANT FASPRO, OPDUALAG, TECENTRIQ HYBREZA, MYFEMBREE
+// whose distinct brand identity isn't ambiguous (#13), (b) it's a
+// single-ingredient product whose ingredient matches the query exactly or
+// as a salt-form variant (#6, #13).
 function isStrongDrugsFdaMatch(query: string, r: DrugsFdaResult): boolean {
   const q = query.toLowerCase();
   const substances = (r.openfda?.substance_name ?? []).map((s) => s.toLowerCase());
-  if (substances.length === 1 && substances[0] === q) return true;
-  // Fall back to exact brand_name / generic_name match — some entries don't
-  // populate substance_name but have a clean name field.
   const brands = (r.openfda?.brand_name ?? []).map((s) => s.toLowerCase());
   const generics = (r.openfda?.generic_name ?? []).map((s) => s.toLowerCase());
-  if (substances.length <= 1 && (brands.includes(q) || generics.includes(q)))
-    return true;
+  if (brands.includes(q)) return true;
+  if (substances.length === 1) {
+    const s = substances[0];
+    if (s === q || isSaltSuffixMatch(q, s)) return true;
+  }
+  if (substances.length <= 1) {
+    if (generics.includes(q)) return true;
+    for (const g of generics) if (isSaltSuffixMatch(q, g)) return true;
+  }
   return false;
 }
 

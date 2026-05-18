@@ -8,3 +8,9 @@ dist
 .vite
 .playwright-mcp/
 *.tsbuildinfo
+# GCP service account keys for the Netlify Function backend (#13). The
+# JSON contents are what get pasted into GOOGLE_APPLICATION_CREDENTIALS_JSON
+# in Netlify's env vars — nothing in this directory should ever be committed.
+secrets/
+*-sa.json
+service-account*.json

@@ -8,6 +8,7 @@ import {
 } from "./normalize";
 import { queryChembl } from "./api/chembl";
 import { queryClinicalTrials } from "./api/clinicaltrials";
+import { queryLLM } from "./api/llm";
 import { queryOpenFdaNdc, type NdcPartial } from "./api/ndc";
 import {
   queryOpenFdaDrugsFda,
@@ -19,6 +20,10 @@ import type { DrugResult, SourceHit } from "./types";
 
 export interface LookupOptions {
   apiKey: string;
+  // When true, the resolver consults the project's /api/llm-lookup proxy
+  // (Gemini via Vertex AI) as a last-resort layer for drugs the prior API
+  // layers couldn't resolve.
+  enableLlmProxy: boolean;
   ttlDays: number;
   useCache: boolean;
 }
@@ -30,8 +35,9 @@ export interface LookupOptions {
 //   4 = RxNorm
 //   5 = ChEMBL (ID-to-INN translation)
 //   6 = ClinicalTrials.gov (ID-to-INN translation, last resort)
+//   7 = LLM (Anthropic) — optional fallback for pre-openFDA drugs (#13)
 function emitLayerHit(
-  layer: 1 | 2 | 3 | 4 | 5 | 6,
+  layer: 1 | 2 | 3 | 4 | 5 | 6 | 7,
   normalized: string
 ): void {
   trackEvent("layer_hit", {
@@ -211,6 +217,35 @@ export async function lookupDrug(
           if (!result.resolvedVia) result.resolvedVia = "clinicaltrials";
           resolved = true;
         }
+      }
+    }
+
+    // LLM fallback (#13): many drugs approved before openFDA's online data
+    // window (1939 nominally, but original NDAs for many 1960s–2000s drugs
+    // simply aren't there) cannot be resolved by the API layers above.
+    // When the deployment has the /api/llm-lookup proxy enabled we ask
+    // Gemini (via Vertex AI) for the original approval. Only runs if the
+    // prior layers failed entirely — we don't second-guess a real FDA hit
+    // with model output.
+    if (!resolved && opts.enableLlmProxy) {
+      const llm = await queryLLM(normalized, {
+        enableProxy: opts.enableLlmProxy,
+      });
+      result.sources.push(...llm.sources);
+      if (llm.status && llm.status !== "not_found") {
+        result.status = llm.status;
+        result.resolvedVia = "llm";
+        if (llm.brandName) result.brandName = llm.brandName;
+        if (llm.genericName) result.genericName = llm.genericName;
+        if (llm.applicationNumber)
+          result.applicationNumber = llm.applicationNumber;
+        if (llm.applicationType) result.applicationType = llm.applicationType;
+        if (llm.approvalDate) result.approvalDate = llm.approvalDate;
+        if (llm.sponsor) result.sponsor = llm.sponsor;
+        if (llm.confidence) result.llmConfidence = llm.confidence;
+        if (llm.rationale) result.llmRationale = llm.rationale;
+        emitLayerHit(7, result.normalizedName);
+        resolved = true;
       }
     }
 
