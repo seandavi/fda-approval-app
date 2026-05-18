@@ -46,6 +46,7 @@ interface LabelResult {
     application_number?: string[];
   };
   marketing_category?: string[] | string;
+  indications_and_usage?: string[];
 }
 
 function appType(num: string | undefined): "NDA" | "BLA" | "ANDA" | undefined {
@@ -361,4 +362,103 @@ export async function queryOpenFdaLabel(
     });
   }
   return { sources };
+}
+
+export interface LabelIndicationFetch {
+  indicationText?: string;
+  sources: SourceHit[];
+}
+
+// Strip the boilerplate header that prefixes most modern openFDA labels.
+// Real example: "HIGHLIGHTS OF PRESCRIBING INFORMATION These highlights do
+// not include all the information needed to use KEYTRUDA safely and
+// effectively. See full prescribing information for KEYTRUDA."
+// We keep everything from the first real indication line onward.
+const LABEL_BOILERPLATE_PATTERNS: RegExp[] = [
+  /^HIGHLIGHTS OF PRESCRIBING INFORMATION[\s\S]*?(?=\b\d+\s+INDICATIONS|\bINDICATIONS AND USAGE)/i,
+  /These highlights do not include all the information needed[\s\S]*?prescribing information[^.]*\.\s*/i,
+  /See full prescribing information[^.]*\.\s*/gi,
+];
+
+function stripLabelBoilerplate(text: string): string {
+  let out = text;
+  for (const pat of LABEL_BOILERPLATE_PATTERNS) {
+    out = out.replace(pat, "");
+  }
+  return out.trim();
+}
+
+// Fetch the current label's `indications_and_usage` text for a specific FDA
+// application. Used as semantic grounding for the Layer 7 arbiter — feeding
+// the model the actual approved indications dramatically reduces the
+// hallucination rate on close-call verifications.
+//
+// Returns `indicationText: undefined` when the label has no indications
+// section, or when openFDA has no current label record indexed by app#.
+// Errors are recorded in `sources` but never thrown — the arbiter can run
+// without this grounding and degrades gracefully.
+export async function fetchLabelIndicationByAppNum(
+  applicationNumber: string,
+  apiKey: string
+): Promise<LabelIndicationFetch> {
+  const sources: SourceHit[] = [];
+  const api = "openfda/label (by appnum)";
+
+  // openFDA stores application_number padded — keep whatever caller gave us
+  // (drugsfda already returns "NDA125514"-shape strings).
+  const params = new URLSearchParams({
+    search: `openfda.application_number:"${applicationNumber}"`,
+    limit: "1",
+  });
+  if (apiKey) params.set("api_key", apiKey);
+  const url = `${OPENFDA_BASE}/drug/label.json?${params.toString()}`;
+
+  try {
+    const r = await fetchWithBackoff(url);
+    if (r.status === 404) {
+      sources.push({ api, url: redact(url), hit: false, detail: "no label" });
+      return { sources };
+    }
+    if (!r.ok) {
+      sources.push({
+        api,
+        url: redact(url),
+        hit: false,
+        detail: `HTTP ${r.status}`,
+      });
+      return { sources };
+    }
+    const body = (await r.json()) as { results?: LabelResult[] };
+    const results = body.results ?? [];
+    if (results.length === 0) {
+      sources.push({ api, url: redact(url), hit: false, detail: "empty" });
+      return { sources };
+    }
+    const raw = results[0].indications_and_usage?.[0];
+    if (!raw || !raw.trim()) {
+      sources.push({
+        api,
+        url: redact(url),
+        hit: false,
+        detail: "no indications section",
+      });
+      return { sources };
+    }
+    const cleaned = stripLabelBoilerplate(raw);
+    sources.push({
+      api,
+      url: redact(url),
+      hit: true,
+      detail: `${cleaned.length} chars`,
+    });
+    return { indicationText: cleaned, sources };
+  } catch (e) {
+    sources.push({
+      api,
+      url: redact(url),
+      hit: false,
+      detail: e instanceof Error ? e.message : "fetch failed",
+    });
+    return { sources };
+  }
 }

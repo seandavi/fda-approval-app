@@ -3,13 +3,18 @@ import { vi } from "vitest";
 type JsonResponse = { status?: number; body: unknown };
 type Matcher = (url: string) => JsonResponse | null;
 
+export interface Call {
+  url: string;
+  body?: unknown;
+}
+
 // Routes are matched in registration order. A route matches if its URL fragment
 // (a substring or regex) appears in the request URL — we don't need fully
 // faithful URL parsing for the resolver tests, just enough to route by
 // hostname + path + the query token we care about.
 export class FetchMock {
   private routes: Matcher[] = [];
-  private calls: string[] = [];
+  private calls: Call[] = [];
 
   on(fragment: string | RegExp, response: JsonResponse | unknown): this {
     const fullResponse: JsonResponse =
@@ -30,15 +35,39 @@ export class FetchMock {
   }
 
   calledUrls(): string[] {
+    return this.calls.map((c) => c.url);
+  }
+
+  calls_(): Call[] {
     return [...this.calls];
+  }
+
+  // Returns the parsed JSON body of the first call whose URL matches the
+  // fragment. Useful for asserting that request payloads contain the right
+  // fields (e.g., that the LLM proxy received `labelIndicationText`).
+  bodyOf(fragment: string | RegExp): unknown {
+    const matcher =
+      typeof fragment === "string"
+        ? (u: string) => u.includes(fragment)
+        : (u: string) => fragment.test(u);
+    const c = this.calls.find((call) => matcher(call.url));
+    return c?.body;
   }
 
   install(): void {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const raw = typeof input === "string" ? input : input.toString();
-        this.calls.push(raw);
+        let parsedBody: unknown;
+        if (init?.body && typeof init.body === "string") {
+          try {
+            parsedBody = JSON.parse(init.body);
+          } catch {
+            parsedBody = init.body;
+          }
+        }
+        this.calls.push({ url: raw, body: parsedBody });
         // Route matching is more useful against the decoded form — tests
         // can write `brand_name:"aspirin"` instead of `brand_name%3A%22...`.
         let decoded = raw;
@@ -61,7 +90,7 @@ export class FetchMock {
           }
         }
         return new Response(
-          JSON.stringify({ error: `unmatched fetch: ${url}` }),
+          JSON.stringify({ error: `unmatched fetch: ${raw}` }),
           { status: 500, headers: { "Content-Type": "application/json" } }
         );
       })

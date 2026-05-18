@@ -47,6 +47,11 @@ export interface DrugResult {
   pipelineApplicationNumber?: string;
   pipelineApprovalDate?: string;
   pipelineResolvedVia?: ResolvedVia;
+  // Current FDA label `indications_and_usage` text for the resolved
+  // application, stripped of boilerplate. Used as grounding context for the
+  // Layer 7 arbiter and as the source of truth for any indication
+  // enrichment built on top of it.
+  labelIndicationText?: string;
   sources: SourceHit[];
   cached: boolean;
   lookedUpAt: string;

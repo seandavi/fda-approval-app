@@ -24,9 +24,17 @@ import { GoogleGenAI, type Content } from "@google/genai";
 const DEFAULT_REGION = process.env.VERTEX_REGION ?? "global";
 const DEFAULT_MODEL = process.env.VERTEX_MODEL ?? "gemini-3.1-flash-lite";
 // Gemini 3 preview uses ~thinking tokens, so it needs headroom even when
-// the final answer is a tiny JSON object. 2048 is plenty for our schema.
-const MAX_TOKENS = 2048;
+// the final answer is a tiny JSON object. Bumped from 2048 to make room
+// for prompts that now include up to MAX_LABEL_CHARS of label text plus
+// any thinking-token overhead on longer reasoning chains.
+const MAX_TOKENS = 3072;
 const MAX_DRUG_NAME_LEN = 200;
+// Cap on label `indications_and_usage` text included in the prompt.
+// Real labels for big-tent oncology drugs (Keytruda, Opdivo) run 15-20 KB,
+// which is fine for Gemini's context window but costs latency. 24 KB lets
+// even the largest current labels through intact while keeping a ceiling
+// against runaway payloads.
+const MAX_LABEL_CHARS = 24_000;
 
 const SYSTEM_PROMPT =
   "You are an FDA drug-approval lookup assistant for clinicians and " +
@@ -46,6 +54,10 @@ interface PipelineFinding {
   brandName?: string;
   genericName?: string;
   resolvedVia?: string;
+  // Current FDA label `indications_and_usage` text for the candidate, used
+  // as semantic grounding. Truncated server-side to MAX_LABEL_CHARS as a
+  // belt-and-suspenders against pathological client payloads.
+  labelIndicationText?: string;
 }
 
 function userPrompt(name: string, pipeline?: PipelineFinding): string {
@@ -78,6 +90,29 @@ function userPrompt(name: string, pipeline?: PipelineFinding): string {
     : `No deterministic candidate was found. Set "agreement" to ` +
       `"unknown" and provide your best answer for the original approval.\n\n`;
 
+  // Label grounding block. When present, this is the authoritative
+  // current-label `indications_and_usage` text for the candidate's FDA
+  // application. We use it as a semantic cross-check: if the label clearly
+  // describes a different molecule or therapy area than the candidate
+  // implies, that's a strong signal the deterministic resolver picked the
+  // wrong application (the dominant #6 failure mode).
+  const labelBlock =
+    pipeline?.labelIndicationText && pipeline.labelIndicationText.trim()
+      ? `Current FDA label "Indications and Usage" section for the candidate ` +
+        `application (truncated if >${MAX_LABEL_CHARS} chars):\n` +
+        `<<<LABEL\n${pipeline.labelIndicationText.slice(0, MAX_LABEL_CHARS)}\nLABEL>>>\n\n` +
+        `Use this label text as the primary semantic check on the candidate.\n` +
+        `- If the label clearly describes a DIFFERENT molecule or therapy area ` +
+        `than the candidate's brand_name / generic_name imply, treat that as ` +
+        `evidence the resolver matched the wrong application — set "agreement" ` +
+        `to "correct" (with your earlier record) or "unknown" if you cannot ` +
+        `produce a confident corrected record.\n` +
+        `- If the label is consistent with the candidate, that strengthens ` +
+        `the case for "confirm".\n` +
+        `- Do not contradict the label text with claims about indications ` +
+        `not visible in it.\n\n`
+      : "";
+
   const schema =
     `Return JSON with this exact shape:\n` +
     `{\n` +
@@ -99,7 +134,7 @@ function userPrompt(name: string, pipeline?: PipelineFinding): string {
     `- If unsure of exact date or application number, set them to null and ` +
     `lower confidence — do not guess.`;
 
-  return base + context + schema;
+  return base + context + labelBlock + schema;
 }
 
 // JSON schema we ask Gemini to produce. Using response_schema constrains
@@ -267,6 +302,19 @@ export default async (req: Request): Promise<Response> => {
     return json({ error: "drugName too long" }, 400);
   }
 
+  // Defensive: sanitize the label-text grounding field. Truncate to the
+  // cap and drop it entirely if the type is wrong. Belt-and-suspenders for
+  // a client that might serialize garbage.
+  const pipelineFinding: PipelineFinding | undefined = body.pipelineFinding
+    ? {
+        ...body.pipelineFinding,
+        labelIndicationText:
+          typeof body.pipelineFinding.labelIndicationText === "string"
+            ? body.pipelineFinding.labelIndicationText.slice(0, MAX_LABEL_CHARS)
+            : undefined,
+      }
+    : undefined;
+
   const ip = clientIp(req);
   if (!takeToken(ip)) {
     return json(
@@ -287,7 +335,7 @@ export default async (req: Request): Promise<Response> => {
     const contents: Content[] = [
       {
         role: "user",
-        parts: [{ text: userPrompt(drugName, body.pipelineFinding) }],
+        parts: [{ text: userPrompt(drugName, pipelineFinding) }],
       },
     ];
     const response = await cfg.client.models.generateContent({

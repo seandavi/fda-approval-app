@@ -11,6 +11,7 @@ import { queryClinicalTrials } from "./api/clinicaltrials";
 import { queryLLM, type LLMPartial } from "./api/llm";
 import { queryOpenFdaNdc, type NdcPartial } from "./api/ndc";
 import {
+  fetchLabelIndicationByAppNum,
   queryOpenFdaDrugsFda,
   queryOpenFdaLabel,
   type OpenFdaPartial,
@@ -322,6 +323,20 @@ export async function lookupDrug(
       result.status !== "otc_monograph" &&
       result.status !== "unapproved_marketed"
     ) {
+      // Fetch the resolved application's label `indications_and_usage` to
+      // give the arbiter semantic grounding. Skipped when we have no
+      // application number — the model then verifies on structured fields
+      // and its training knowledge, same as the pre-grounding behavior.
+      if (result.applicationNumber) {
+        const labelInd = await fetchLabelIndicationByAppNum(
+          result.applicationNumber,
+          opts.apiKey
+        );
+        result.sources.push(...labelInd.sources);
+        if (labelInd.indicationText) {
+          result.labelIndicationText = labelInd.indicationText;
+        }
+      }
       const pipelineFinding =
         result.status === "approved" || result.status === "discontinued"
           ? {
@@ -332,6 +347,7 @@ export async function lookupDrug(
               brandName: result.brandName,
               genericName: result.genericName,
               resolvedVia: result.resolvedVia,
+              labelIndicationText: result.labelIndicationText,
             }
           : undefined;
       const llm = await queryLLM(normalized, {

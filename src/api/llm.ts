@@ -23,6 +23,9 @@ export interface PipelineFinding {
   brandName?: string;
   genericName?: string;
   resolvedVia?: string;
+  // Current FDA label `indications_and_usage` text for the candidate, used
+  // as semantic grounding for the arbiter. Omitted when no label was found.
+  labelIndicationText?: string;
 }
 
 export interface LLMPartial {

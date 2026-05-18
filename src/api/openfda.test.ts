@@ -1,6 +1,9 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { FetchMock } from "../test/fetchMock";
-import { queryOpenFdaDrugsFda } from "./openfda";
+import {
+  fetchLabelIndicationByAppNum,
+  queryOpenFdaDrugsFda,
+} from "./openfda";
 
 const FLUOROURACIL_BRAND_FIXTURE = {
   meta: { results: { total: 5 } },
@@ -233,5 +236,114 @@ describe("queryOpenFdaDrugsFda", () => {
     const result = await queryOpenFdaDrugsFda("aspirin", "");
 
     expect(result.status).toBeUndefined();
+  });
+});
+
+describe("fetchLabelIndicationByAppNum", () => {
+  let mock: FetchMock;
+
+  beforeEach(() => {
+    mock = new FetchMock();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns indication text when openFDA has a current label for the appnum", async () => {
+    mock.on(/openfda\.application_number:"BLA125514"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: {
+            application_number: ["BLA125514"],
+            brand_name: ["KEYTRUDA"],
+            generic_name: ["PEMBROLIZUMAB"],
+          },
+          indications_and_usage: [
+            "1 INDICATIONS AND USAGE KEYTRUDA is indicated for the " +
+              "treatment of patients with unresectable or metastatic melanoma.",
+          ],
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("BLA125514", "");
+
+    expect(result.indicationText).toBeDefined();
+    expect(result.indicationText).toContain("unresectable or metastatic melanoma");
+    expect(result.sources).toHaveLength(1);
+    expect(result.sources[0].hit).toBe(true);
+  });
+
+  it("returns undefined when the label exists but has no indications_and_usage", async () => {
+    mock.on(/openfda\.application_number/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["NDA999999"] },
+          // no indications_and_usage field
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("NDA999999", "");
+
+    expect(result.indicationText).toBeUndefined();
+    expect(result.sources[0].hit).toBe(false);
+    expect(result.sources[0].detail).toBe("no indications section");
+  });
+
+  it("returns undefined when openFDA has no label for the appnum (404)", async () => {
+    mock.notFound(/openfda\.application_number/);
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("NDA000000", "");
+
+    expect(result.indicationText).toBeUndefined();
+    expect(result.sources[0].hit).toBe(false);
+    expect(result.sources[0].detail).toBe("no label");
+  });
+
+  it("strips HIGHLIGHTS OF PRESCRIBING INFORMATION boilerplate from the start", async () => {
+    const labelText =
+      "HIGHLIGHTS OF PRESCRIBING INFORMATION\n" +
+      "These highlights do not include all the information needed to use " +
+      "KEYTRUDA safely and effectively. See full prescribing information " +
+      "for KEYTRUDA. KEYTRUDA injection, for intravenous use Initial U.S. " +
+      "Approval: 2014\n" +
+      "1 INDICATIONS AND USAGE KEYTRUDA is indicated for the treatment of " +
+      "unresectable or metastatic melanoma.";
+    mock.on(/openfda\.application_number/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["BLA125514"] },
+          indications_and_usage: [labelText],
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("BLA125514", "");
+
+    expect(result.indicationText).toBeDefined();
+    expect(result.indicationText).not.toMatch(/HIGHLIGHTS OF PRESCRIBING INFORMATION/);
+    expect(result.indicationText).toContain("1 INDICATIONS AND USAGE");
+    expect(result.indicationText).toContain("melanoma");
+  });
+
+  it("never throws — network errors surface in sources", async () => {
+    // No mock route registered → FetchMock returns 500. The function must
+    // record the error without throwing.
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("NDA123456", "");
+
+    expect(result.indicationText).toBeUndefined();
+    expect(result.sources).toHaveLength(1);
+    expect(result.sources[0].hit).toBe(false);
   });
 });
