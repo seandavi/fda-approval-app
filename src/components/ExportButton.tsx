@@ -13,6 +13,26 @@ const COLUMNS: Array<{ header: string; pick: (r: DrugResult) => string }> = [
   { header: "approvalDate", pick: (r) => r.approvalDate ?? "" },
   { header: "sponsor", pick: (r) => r.sponsor ?? "" },
   { header: "resolvedVia", pick: (r) => r.resolvedVia ?? "" },
+  // LLM verifier audit trail. llmAgreement is empty when Layer 7 didn't run
+  // (e.g. otc_monograph results, or the proxy was disabled in dev).
+  { header: "llmAgreement", pick: (r) => r.llmAgreement ?? "" },
+  { header: "llmConfidence", pick: (r) => r.llmConfidence ?? "" },
+  { header: "llmRationale", pick: (r) => r.llmRationale ?? "" },
+  // Populated when the LLM overrode a deterministic-pipeline candidate, so
+  // a CSV consumer can reconstruct both the original and the corrected
+  // answer side by side.
+  {
+    header: "pipelineApplicationNumber",
+    pick: (r) => r.pipelineApplicationNumber ?? "",
+  },
+  {
+    header: "pipelineApprovalDate",
+    pick: (r) => r.pipelineApprovalDate ?? "",
+  },
+  {
+    header: "pipelineResolvedVia",
+    pick: (r) => r.pipelineResolvedVia ?? "",
+  },
   { header: "lookedUpAt", pick: (r) => r.lookedUpAt },
   { header: "app_version", pick: () => SHORT_SHA },
 ];

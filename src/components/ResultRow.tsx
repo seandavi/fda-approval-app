@@ -8,6 +8,51 @@ interface Props {
   defaultExpanded: boolean;
 }
 
+// Small inline badge that surfaces the LLM verdict in the resolved-via cell.
+// Hover or focus reveals the rationale; clicking expands the full row.
+function LlmBadge({ result }: { result: DrugResult }) {
+  if (!result.llmAgreement) return null;
+  const styles: Record<string, string> = {
+    confirm:
+      "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200 hover:bg-emerald-200",
+    correct:
+      "bg-amber-100 text-amber-900 ring-1 ring-amber-300 hover:bg-amber-200",
+    unknown:
+      "bg-slate-100 text-slate-700 ring-1 ring-slate-200 hover:bg-slate-200",
+  };
+  const labels: Record<string, string> = {
+    confirm: "✓ LLM",
+    correct: "↻ LLM",
+    unknown: "? LLM",
+  };
+  const tip = [
+    result.llmConfidence ? `Confidence: ${result.llmConfidence}` : null,
+    result.llmRationale ?? null,
+  ]
+    .filter(Boolean)
+    .join(" — ");
+  return (
+    <span className="relative inline-block group ml-1 align-middle">
+      <span
+        tabIndex={0}
+        role="button"
+        aria-label={`LLM ${result.llmAgreement} — ${result.llmRationale ?? ""}`}
+        className={`inline-flex items-center cursor-help rounded px-1 py-px text-[10px] font-medium ${styles[result.llmAgreement] ?? ""}`}
+      >
+        {labels[result.llmAgreement]}
+      </span>
+      {tip && (
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute z-20 bottom-full right-0 mb-1 hidden group-hover:block group-focus-within:block whitespace-normal w-72 rounded-md bg-slate-900 px-3 py-2 text-xs font-normal text-white shadow-lg leading-relaxed"
+        >
+          {tip}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function ResultRow({ result, defaultExpanded }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
@@ -72,7 +117,8 @@ export function ResultRow({ result, defaultExpanded }: Props) {
           {result.sponsor ?? "—"}
         </td>
         <td className="px-3 py-2 align-top text-slate-500 text-xs">
-          {result.resolvedVia ?? "—"}
+          <span>{result.resolvedVia ?? "—"}</span>
+          <LlmBadge result={result} />
         </td>
       </tr>
       {expanded && (
@@ -87,7 +133,7 @@ export function ResultRow({ result, defaultExpanded }: Props) {
                     {" "}· Marketing: <code>{result.marketingCategory}</code>
                   </>
                 )}
-                {result.resolvedVia === "llm" && result.llmConfidence && (
+                {result.llmConfidence && (
                   <>
                     {" "}· LLM confidence: <code>{result.llmConfidence}</code>
                   </>
@@ -145,10 +191,37 @@ export function ResultRow({ result, defaultExpanded }: Props) {
                 ))}
               </tbody>
             </table>
-            {result.resolvedVia === "llm" && result.llmRationale && (
-              <div className="mt-3 rounded-md bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-xs text-amber-900">
-                <span className="font-semibold">LLM rationale:</span>{" "}
+            {result.llmRationale && (
+              <div
+                className={`mt-3 rounded-md ring-1 px-3 py-2 text-xs ${
+                  result.llmAgreement === "correct"
+                    ? "bg-amber-50 ring-amber-200 text-amber-900"
+                    : result.llmAgreement === "confirm"
+                      ? "bg-emerald-50 ring-emerald-200 text-emerald-900"
+                      : "bg-slate-100 ring-slate-200 text-slate-700"
+                }`}
+              >
+                <span className="font-semibold">
+                  {result.llmAgreement === "correct"
+                    ? "LLM corrected the pipeline:"
+                    : result.llmAgreement === "confirm"
+                      ? "LLM confirmed the pipeline:"
+                      : "LLM verdict:"}
+                </span>{" "}
                 {result.llmRationale}
+                {result.pipelineApplicationNumber && (
+                  <div className="mt-1.5 text-[11px] opacity-80">
+                    Pipeline originally returned{" "}
+                    <code className="bg-white px-1 rounded line-through decoration-amber-700">
+                      {result.pipelineApplicationNumber}
+                    </code>{" "}
+                    on{" "}
+                    <code className="bg-white px-1 rounded line-through decoration-amber-700">
+                      {result.pipelineApprovalDate ?? "—"}
+                    </code>{" "}
+                    (via {result.pipelineResolvedVia ?? "?"}).
+                  </div>
+                )}
               </div>
             )}
           </td>
