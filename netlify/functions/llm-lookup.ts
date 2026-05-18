@@ -25,12 +25,14 @@ const DEFAULT_REGION = process.env.VERTEX_REGION ?? "global";
 const DEFAULT_MODEL = process.env.VERTEX_MODEL ?? "gemini-3.1-flash-lite";
 // Caps the *generated* (output + thinking) token budget per call. Gemini 3
 // preview uses thinking tokens that count against this even when the final
-// JSON is tiny. Bumped from 2048 to leave reasoning headroom for prompts
-// that now include up to MAX_LABEL_CHARS of grounding text, and to fit
-// response payloads that can include 25+ verbatim indication strings on
-// big-tent oncology drugs (Keytruda, Opdivo). Input/context size is bounded
-// separately by MAX_LABEL_CHARS + MAX_DRUG_NAME_LEN, not by this constant.
-const MAX_TOKENS = 4096;
+// JSON is tiny — and the thinking budget grows with prompt complexity, so
+// the 24 KB label grounding payload can eat a lot of it before the model
+// even starts emitting JSON. Bumped to 8192 after #37 (Keytruda enumeration
+// dropped indications entirely on a 23 KB label) to leave enough output
+// headroom for 25+ verbatim indication strings on big-tent oncology drugs.
+// Input/context size is bounded separately by MAX_LABEL_CHARS +
+// MAX_DRUG_NAME_LEN, not by this constant.
+const MAX_TOKENS = 8192;
 const MAX_DRUG_NAME_LEN = 200;
 // Cap on label `indications_and_usage` text included in the prompt.
 // Real labels for big-tent oncology drugs (Keytruda, Opdivo) run 15-20 KB,
