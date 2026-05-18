@@ -381,8 +381,7 @@ export async function lookupDrug(
           // provenance stays in the audit trail.
           if (result.applicationNumber) {
             const refetch = await fetchLabelIndicationByAppNum(
-              result.applicationNumber,
-              opts.apiKey
+              result.applicationNumber
             );
             result.sources.push(...refetch.sources);
             if (refetch.indicationText) {
