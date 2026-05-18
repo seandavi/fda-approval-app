@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { trackEvent } from "./analytics";
 import { AboutPage } from "./components/AboutPage";
-import { InputPanel, type InputMode } from "./components/InputPanel";
+import { type InputMode } from "./components/InputPanel";
+import { LandingPage } from "./components/LandingPage";
+import { ResultsPage } from "./components/ResultsPage";
 import { genericFeedbackUrl, repoUrl } from "./feedback";
-import { ProgressBar } from "./components/ProgressBar";
-import { ResultsStrip } from "./components/ResultsStrip";
-import { ResultsTable } from "./components/ResultsTable";
-import { SettingsPanel } from "./components/SettingsPanel";
 import { lookupBatch } from "./lookup";
 import { parseBatchInput } from "./normalize";
 import type { AppSettings, DrugResult } from "./types";
@@ -48,9 +46,14 @@ function saveSettings(s: AppSettings): void {
 }
 
 type View = "lookup" | "about";
+// Two-phase flow: the landing page (input + workflow overview + settings)
+// transitions to the results page when a lookup runs. "Edit input" on the
+// results page returns to the landing with the input value preserved.
+type Phase = "input" | "results";
 
 export function App() {
   const [view, setView] = useState<View>("lookup");
+  const [phase, setPhase] = useState<Phase>("input");
   const [mode, setMode] = useState<InputMode>("batch");
   const [inputValue, setInputValue] = useState("");
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
@@ -74,6 +77,7 @@ export function App() {
     if (parsedNames.length === 0 || running) return;
     if (parsedNames.length > BATCH_LIMIT) return;
     setRunning(true);
+    setPhase("results");
 
     const placeholders: DrugResult[] = parsedNames.map((name) => ({
       inputName: name,
@@ -145,9 +149,8 @@ export function App() {
             </h1>
             <p className="text-xs text-violet-200 mt-0.5">
               Resolve drug names — brands, INNs, or internal codes — to
-              their canonical FDA application and original approval date,
-              across openFDA, RxNorm, ChEMBL, ClinicalTrials.gov, and an
-              LLM arbiter.
+              their canonical FDA application, approval date, and current
+              label indications.
             </p>
           </div>
           <div className="flex items-center gap-4">
@@ -212,54 +215,29 @@ export function App() {
         <main className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
           <AboutPage />
         </main>
+      ) : phase === "input" || results.length === 0 ? (
+        <main className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
+          <LandingPage
+            mode={mode}
+            onModeChange={setMode}
+            inputValue={inputValue}
+            onInputChange={setInputValue}
+            onSubmit={handleSubmit}
+            running={running}
+            settings={settings}
+            onSettingsChange={setSettings}
+            batchLimit={BATCH_LIMIT}
+          />
+        </main>
       ) : (
-      <main className="lg:flex-1 lg:min-h-0 lg:overflow-hidden">
-        {/* Two-column dashboard. Page is viewport-locked on lg+ — the left
-            rail (input + settings) stays put while only the results panel
-            scrolls internally. Stacks and scrolls normally on narrow
-            viewports. */}
-        <div className="max-w-7xl mx-auto px-6 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:h-full lg:overflow-hidden">
-          <aside className="lg:col-span-4 xl:col-span-3 space-y-4 lg:overflow-y-auto lg:min-h-0 lg:pr-2">
-            <InputPanel
-              mode={mode}
-              onModeChange={setMode}
-              value={inputValue}
-              onChange={setInputValue}
-              onSubmit={handleSubmit}
-              disabled={running}
-              batchLimit={BATCH_LIMIT}
-            />
-            {progress.total > 0 && (
-              <div className="bg-white rounded-lg shadow-sm ring-1 ring-slate-200 px-4 py-3">
-                <ProgressBar
-                  completed={progress.completed}
-                  total={progress.total}
-                />
-              </div>
-            )}
-            <SettingsPanel settings={settings} onChange={setSettings} />
-          </aside>
-
-          <section className="lg:col-span-8 xl:col-span-9 space-y-4 lg:flex lg:flex-col lg:min-h-0">
-            <ResultsStrip results={results} />
-            {results.length === 0 ? (
-              <div className="bg-white rounded-lg shadow-sm ring-1 ring-slate-200 p-12 text-center lg:flex-1 lg:flex lg:flex-col lg:items-center lg:justify-center">
-                <p className="text-sm text-slate-600">
-                  Enter one or more drug names on the left to start a lookup.
-                </p>
-                <p className="text-xs text-slate-400 mt-2">
-                  Brand names, generic INNs, and internal company codes all work.
-                </p>
-              </div>
-            ) : (
-              <ResultsTable
-                results={results}
-                defaultExpandSources={settings.showSourcesByDefault}
-              />
-            )}
-          </section>
-        </div>
-      </main>
+        <main className="lg:flex-1 lg:min-h-0 lg:overflow-hidden">
+          <ResultsPage
+            results={results}
+            progress={progress}
+            running={running}
+            onBack={() => setPhase("input")}
+          />
+        </main>
       )}
 
       <footer className="text-center text-xs text-slate-400 py-3 border-t border-slate-200 bg-white flex-shrink-0">

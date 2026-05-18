@@ -12,6 +12,7 @@ type SortKey =
   | "applicationType"
   | "brandName"
   | "approvalDate"
+  | "originalIndication"
   | "sponsor"
   | "resolvedVia";
 
@@ -19,7 +20,8 @@ type StatusFilter = "all" | ApprovalStatus;
 
 interface Props {
   results: DrugResult[];
-  defaultExpandSources: boolean;
+  selectedKey: string | null;
+  onSelect: (key: string) => void;
 }
 
 const HEADERS: Array<{ key: SortKey; label: string; tooltip?: string }> = [
@@ -49,6 +51,12 @@ const HEADERS: Array<{ key: SortKey; label: string; tooltip?: string }> = [
     label: "Approval Date",
     tooltip:
       "Earliest FDA approval date for the chosen application (NDA/BLA/ANDA). Sourced from openFDA drugsfda submissions; not populated for OTC monograph or unapproved-marketed records.",
+  },
+  {
+    key: "originalIndication",
+    label: "Original indication",
+    tooltip:
+      "Best-effort first-approval indication from the Layer 7 LLM arbiter, anchored to the candidate's approval date. Click the row to see the full current FDA-label indication list — that's the verbatim, authoritative one.",
   },
   { key: "sponsor", label: "Sponsor" },
   {
@@ -82,6 +90,8 @@ function valueFor(r: DrugResult, key: SortKey): string | undefined {
       return r.brandName;
     case "approvalDate":
       return r.approvalDate;
+    case "originalIndication":
+      return r.originalIndication;
     case "sponsor":
       return r.sponsor;
     case "resolvedVia":
@@ -89,21 +99,35 @@ function valueFor(r: DrugResult, key: SortKey): string | undefined {
   }
 }
 
-export function ResultsTable({ results, defaultExpandSources }: Props) {
+export function rowKey(r: DrugResult, i: number): string {
+  return `${r.inputName}-${i}`;
+}
+
+export function ResultsTable({ results, selectedKey, onSelect }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("inputName");
   const [sortAsc, setSortAsc] = useState(true);
   const [filter, setFilter] = useState<StatusFilter>("all");
 
+  // Annotate rows with their stable key before filtering/sorting, so the
+  // detail-panel selection stays correctly mapped after a sort flip.
+  const indexed = useMemo(
+    () => results.map((r, i) => ({ r, key: rowKey(r, i) })),
+    [results]
+  );
+
   const filtered = useMemo(() => {
-    const f = filter === "all" ? results : results.filter((r) => r.status === filter);
+    const f =
+      filter === "all"
+        ? indexed
+        : indexed.filter((x) => x.r.status === filter);
     const sorted = [...f].sort((a, b) => {
-      const av = valueFor(a, sortKey);
-      const bv = valueFor(b, sortKey);
+      const av = valueFor(a.r, sortKey);
+      const bv = valueFor(b.r, sortKey);
       const c = cmp(av, bv);
       return sortAsc ? c : -c;
     });
     return sorted;
-  }, [results, filter, sortKey, sortAsc]);
+  }, [indexed, filter, sortKey, sortAsc]);
 
   if (results.length === 0) return null;
 
@@ -140,7 +164,6 @@ export function ResultsTable({ results, defaultExpandSources }: Props) {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500 sticky top-0 z-10">
             <tr>
-              <th className="px-3 py-2 w-8" />
               {HEADERS.map((h) => (
                 <th
                   key={h.key}
@@ -169,11 +192,12 @@ export function ResultsTable({ results, defaultExpandSources }: Props) {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r, i) => (
+            {filtered.map(({ r, key }) => (
               <ResultRow
-                key={`${r.inputName}-${i}`}
+                key={key}
                 result={r}
-                defaultExpanded={defaultExpandSources}
+                selected={selectedKey === key}
+                onSelect={() => onSelect(key)}
               />
             ))}
           </tbody>
