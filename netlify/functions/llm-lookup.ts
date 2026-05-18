@@ -183,42 +183,60 @@ function userPrompt(name: string, pipeline?: PipelineFinding): string {
   return base + context + labelBlock + schema;
 }
 
-// JSON schema we ask Gemini to produce. Using response_schema constrains
-// decoding so we don't have to defensively unwrap markdown fences.
-const RESPONSE_SCHEMA = {
-  type: "object",
-  properties: {
-    agreement: {
-      type: "string",
-      enum: ["confirm", "correct", "unknown"],
+// JSON response schema sent to Gemini. Conditionally tightened when the
+// pipeline provided label text — the prompt already says
+// current_indications MUST be a non-empty array in that case, but the
+// model is happy to ignore prompts on big oncology labels (#40, #41).
+// Switching the schema to require + minItems:1 forces Vertex to reject
+// any response that doesn't comply, so the model is structurally
+// compelled to enumerate. When no label is provided, the field stays
+// nullable so the no-grounding path still works.
+function buildResponseSchema(hasLabelText: boolean): object {
+  const indicationsField = hasLabelText
+    ? {
+        type: "array",
+        items: { type: "string" },
+        minItems: 1,
+        // not nullable
+      }
+    : {
+        type: "array",
+        items: { type: "string" },
+        nullable: true,
+      };
+  const required = [
+    "agreement",
+    "status",
+    "confidence",
+    "rationale",
+    ...(hasLabelText ? ["current_indications"] : []),
+  ];
+  return {
+    type: "object",
+    properties: {
+      agreement: { type: "string", enum: ["confirm", "correct", "unknown"] },
+      status: {
+        type: "string",
+        enum: ["approved", "discontinued", "otc_monograph", "not_found"],
+      },
+      brand_name: { type: "string", nullable: true },
+      generic_name: { type: "string", nullable: true },
+      application_number: { type: "string", nullable: true },
+      application_type: {
+        type: "string",
+        enum: ["NDA", "BLA", "ANDA"],
+        nullable: true,
+      },
+      approval_date: { type: "string", nullable: true },
+      sponsor: { type: "string", nullable: true },
+      current_indications: indicationsField,
+      original_indication: { type: "string", nullable: true },
+      confidence: { type: "string", enum: ["high", "medium", "low"] },
+      rationale: { type: "string" },
     },
-    status: {
-      type: "string",
-      enum: ["approved", "discontinued", "otc_monograph", "not_found"],
-    },
-    brand_name: { type: "string", nullable: true },
-    generic_name: { type: "string", nullable: true },
-    application_number: { type: "string", nullable: true },
-    application_type: {
-      type: "string",
-      enum: ["NDA", "BLA", "ANDA"],
-      nullable: true,
-    },
-    approval_date: { type: "string", nullable: true },
-    sponsor: { type: "string", nullable: true },
-    current_indications: {
-      type: "array",
-      items: { type: "string" },
-      nullable: true,
-    },
-    original_indication: { type: "string", nullable: true },
-    confidence: { type: "string", enum: ["high", "medium", "low"] },
-    rationale: { type: "string" },
-  },
-  // Leave indications optional so prior arbiter regression fixtures
-  // (#13/#18) continue to validate without a flag day.
-  required: ["agreement", "status", "confidence", "rationale"],
-} as const;
+    required,
+  };
+}
 
 // Token bucket per client IP. Lives in module scope so it survives within a
 // single function instance; cold starts reset it. Good enough as a cost
@@ -392,6 +410,9 @@ export default async (req: Request): Promise<Response> => {
         parts: [{ text: userPrompt(drugName, pipelineFinding) }],
       },
     ];
+    const hasLabelText =
+      !!pipelineFinding?.labelIndicationText &&
+      pipelineFinding.labelIndicationText.length > 100;
     const response = await cfg.client.models.generateContent({
       model: cfg.model,
       contents,
@@ -405,7 +426,10 @@ export default async (req: Request): Promise<Response> => {
           thinkingBudget: THINKING_BUDGET,
         },
         responseMimeType: "application/json",
-        responseSchema: RESPONSE_SCHEMA,
+        // Schema is tightened when label text was provided so the model
+        // can't return a null/empty current_indications array even when
+        // it would prefer to skip enumeration on a long label (#40, #41).
+        responseSchema: buildResponseSchema(hasLabelText),
         temperature: 0,
       },
     });
