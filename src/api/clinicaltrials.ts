@@ -1,5 +1,6 @@
 import type { SourceHit } from "../types";
 import { looksLikeINN } from "../normalize";
+import { fetchWithBackoff } from "./_http";
 
 const BASE = "https://clinicaltrials.gov/api/v2";
 
@@ -33,7 +34,7 @@ export async function queryClinicalTrials(name: string): Promise<CtPartial> {
   const url = `${BASE}/studies?${params.toString()}`;
 
   try {
-    const r = await fetch(url);
+    const r = await fetchWithBackoff(url);
     if (!r.ok) {
       sources.push({
         api: "clinicaltrials",

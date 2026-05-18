@@ -1,5 +1,7 @@
 import { sameMolecule } from "../molecule";
 import type { ApprovalStatus, ResolvedVia, SourceHit } from "../types";
+import { fetchWithBackoff, redactApiKey as redact } from "./_http";
+import { isSaltSuffixMatch } from "./salts";
 
 const OPENFDA_BASE = "https://api.fda.gov";
 
@@ -63,21 +65,6 @@ function formatDate(yyyymmdd: string | undefined): string | undefined {
   return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
 }
 
-async function fetchWithBackoff(url: string): Promise<Response> {
-  const r = await fetch(url);
-  if (r.status === 429) {
-    await new Promise((res) => setTimeout(res, 2000));
-    return fetch(url);
-  }
-  return r;
-}
-
-// Keep the real URL for fetching, but never store the api_key in SourceHit
-// records — they're rendered to the UI and exported to CSV.
-function redact(url: string): string {
-  return url.replace(/([?&]api_key=)[^&]*/i, "$1REDACTED");
-}
-
 function buildDrugsFdaUrl(
   field: "brand_name" | "generic_name",
   name: string,
@@ -96,26 +83,6 @@ function buildDrugsFdaUrl(
   });
   if (apiKey) params.set("api_key", apiKey);
   return `${OPENFDA_BASE}/drug/drugsfda.json?${params.toString()}`;
-}
-
-// Common salt suffixes openFDA stores in product names. We treat
-// "tamoxifen citrate", "vinblastine sulfate", "doxorubicin hydrochloride"
-// etc. as strong matches for the base INN — only when the product is
-// single-ingredient (substance_name length 1), so we don't conflate combo
-// products whose generic happens to start with a queried token (issue #13).
-const SALT_SUFFIXES = [
-  "hydrochloride", "hcl", "sodium", "potassium", "calcium", "magnesium",
-  "sulfate", "sulphate", "phosphate", "acetate", "tartrate", "succinate",
-  "fumarate", "maleate", "citrate", "tosylate", "mesylate", "besylate",
-  "edisylate", "esylate", "lactate", "gluconate", "bromide", "chloride",
-  "iodide", "nitrate", "carbonate", "bicarbonate", "hemihydrate", "dihydrate",
-  "monohydrate", "anhydrous", "free base", "base",
-];
-
-function isSaltSuffixMatch(query: string, candidate: string): boolean {
-  if (!candidate.startsWith(`${query} `)) return false;
-  const tail = candidate.slice(query.length + 1);
-  return SALT_SUFFIXES.some((s) => tail === s || tail.startsWith(`${s} `));
 }
 
 // openFDA's brand_name/generic_name indexes are token-based: a query for

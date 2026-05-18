@@ -1,4 +1,5 @@
 import type { SourceHit } from "../types";
+import { fetchWithBackoff } from "./_http";
 
 const BASE = "https://www.ebi.ac.uk/chembl/api/data";
 
@@ -67,7 +68,7 @@ async function queryChemblExact(
   });
   const url = `${BASE}/molecule.json?${params.toString()}`;
   try {
-    const r = await fetch(url);
+    const r = await fetchWithBackoff(url);
     if (!r.ok) return { url, detail: `HTTP ${r.status}` };
     const body = (await r.json()) as MoleculeResponse;
     const molecules = body.molecules ?? [];

@@ -1,4 +1,5 @@
 import type { SourceHit } from "../types";
+import { fetchWithBackoff } from "./_http";
 
 const BASE = "https://rxnav.nlm.nih.gov/REST";
 
@@ -36,7 +37,7 @@ export async function queryRxNorm(name: string): Promise<RxNormPartial> {
   let rxcui: string | undefined;
 
   try {
-    const r = await fetch(drugsUrl);
+    const r = await fetchWithBackoff(drugsUrl);
     if (!r.ok) {
       sources.push({
         api: "rxnorm/drugs",
@@ -76,7 +77,7 @@ export async function queryRxNorm(name: string): Promise<RxNormPartial> {
 
   const propUrl = `${BASE}/rxcui/${rxcui}/property.json?propName=FDA_APPLICATION_NUMBER`;
   try {
-    const r = await fetch(propUrl);
+    const r = await fetchWithBackoff(propUrl);
     if (!r.ok) {
       sources.push({
         api: "rxnorm/property",
