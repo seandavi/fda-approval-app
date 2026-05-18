@@ -552,3 +552,363 @@ describe("queryOpenFdaDrugsFda — brand/generic merge (regression #13)", () => 
     expect(r.status).toBe("discontinued");
   });
 });
+
+describe("lookupDrug — label-text grounding for arbiter (#21)", () => {
+  let mock: FetchMock;
+
+  beforeEach(() => {
+    mock = new FetchMock();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("plumbs label indications_and_usage into the LLM proxy body and DrugResult", async () => {
+    // Pipeline resolves to KEYTRUDA. The appnum-based label fetch returns a
+    // canned indication block. We assert the text reaches the proxy POST
+    // body and lands on DrugResult.labelIndicationText.
+    const INDICATION =
+      "KEYTRUDA is indicated for the treatment of patients with unresectable " +
+      "or metastatic melanoma.";
+
+    mock.on(
+      /openfda\.brand_name:"pembrolizumab"/,
+      drugsfdaApproved({
+        appNum: "BLA125514",
+        date: "20140904",
+        brand: "KEYTRUDA",
+        generic: "PEMBROLIZUMAB",
+      })
+    );
+    mock.on(/openfda\.generic_name:"pembrolizumab"/, EMPTY_FDA);
+    // Layer-2 label lookup by brand name — empty (drugsfda already matched).
+    mock.on(/openfda\.brand_name:"pembrolizumab".*label/, EMPTY_LABEL);
+    // The new appnum-based label fetch (must match the resolved BLA125514).
+    mock.on(/openfda\.application_number:"BLA125514"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["BLA125514"] },
+          indications_and_usage: [INDICATION],
+        },
+      ],
+    });
+    mock.on("/drug/ndc.json", EMPTY_NDC);
+    mock.on(
+      "/api/llm-lookup",
+      llmPayload({
+        agreement: "confirm",
+        status: "approved",
+        confidence: "high",
+        application_number: "BLA125514",
+        application_type: "BLA",
+        approval_date: "2014-09-04",
+        brand_name: "Keytruda",
+        generic_name: "pembrolizumab",
+        rationale: "Label text matches the candidate.",
+      })
+    );
+    mock.install();
+
+    const r = await lookupDrug("pembrolizumab", OPTS);
+
+    expect(r.status).toBe("approved");
+    expect(r.labelIndicationText).toBeDefined();
+    expect(r.labelIndicationText).toContain("unresectable or metastatic melanoma");
+
+    // The LLM proxy must have received the label text as part of the
+    // pipelineFinding payload — this is the grounding signal Stage 1 adds.
+    const proxyBody = mock.bodyOf("/api/llm-lookup") as {
+      pipelineFinding?: { labelIndicationText?: string };
+    };
+    expect(proxyBody.pipelineFinding?.labelIndicationText).toContain(
+      "unresectable or metastatic melanoma"
+    );
+  });
+
+  it("skips label fetch entirely when no application number was resolved", async () => {
+    // Nothing in any layer; pipeline finishes as not_found. Arbiter still
+    // runs (proxy enabled, status != otc) but with no pipelineFinding —
+    // and crucially, no appnum-based label fetch happens.
+    mock.on("/drug/drugsfda.json", EMPTY_FDA);
+    mock.on("/drug/label.json", EMPTY_LABEL);
+    mock.on("/drug/ndc.json", EMPTY_NDC);
+    mock.on("rxnav.nlm.nih.gov", EMPTY_RXNORM);
+    mock.on("ebi.ac.uk/chembl", EMPTY_CHEMBL);
+    mock.on("clinicaltrials.gov", EMPTY_CT);
+    mock.on(
+      "/api/llm-lookup",
+      llmPayload({
+        agreement: "unknown",
+        status: "not_found",
+        confidence: "low",
+        rationale: "No data.",
+      })
+    );
+    mock.install();
+
+    const r = await lookupDrug("notadrug", OPTS);
+
+    expect(r.labelIndicationText).toBeUndefined();
+    // No call should have hit the appnum-search path.
+    const sawAppnumFetch = mock
+      .calledUrls()
+      .some((u) => /openfda\.application_number/.test(decodeURIComponent(u)));
+    expect(sawAppnumFetch).toBe(false);
+  });
+
+  it("populates currentIndications + originalIndication from the LLM response (#22)", async () => {
+    mock.on(
+      /openfda\.brand_name:"pembrolizumab"/,
+      drugsfdaApproved({
+        appNum: "BLA125514",
+        date: "20140904",
+        brand: "KEYTRUDA",
+        generic: "PEMBROLIZUMAB",
+      })
+    );
+    mock.on(/openfda\.generic_name:"pembrolizumab"/, EMPTY_FDA);
+    mock.on(/label\.json/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["BLA125514"] },
+          indications_and_usage: [
+            "KEYTRUDA is indicated for the treatment of melanoma, NSCLC, " +
+              "HNSCC, and several other tumor types.",
+          ],
+        },
+      ],
+    });
+    mock.on(/ndc\.json/, EMPTY_NDC);
+    mock.on(
+      "/api/llm-lookup",
+      llmPayload({
+        agreement: "confirm",
+        status: "approved",
+        confidence: "high",
+        application_number: "BLA125514",
+        application_type: "BLA",
+        approval_date: "2014-09-04",
+        brand_name: "KEYTRUDA",
+        generic_name: "pembrolizumab",
+        current_indications: [
+          "unresectable or metastatic melanoma",
+          "metastatic non-small cell lung cancer",
+          "recurrent or metastatic head and neck squamous cell carcinoma",
+        ],
+        original_indication: "unresectable or metastatic melanoma",
+        rationale: "Label matches.",
+      })
+    );
+    mock.install();
+
+    const r = await lookupDrug("pembrolizumab", OPTS);
+
+    expect(r.currentIndications).toEqual([
+      "unresectable or metastatic melanoma",
+      "metastatic non-small cell lung cancer",
+      "recurrent or metastatic head and neck squamous cell carcinoma",
+    ]);
+    expect(r.originalIndication).toBe("unresectable or metastatic melanoma");
+  });
+
+  it("drops empty/whitespace-only indication strings from the LLM response (#22)", async () => {
+    mock.on(
+      /openfda\.brand_name:"pembrolizumab"/,
+      drugsfdaApproved({
+        appNum: "BLA125514",
+        date: "20140904",
+        brand: "KEYTRUDA",
+        generic: "PEMBROLIZUMAB",
+      })
+    );
+    mock.on(/openfda\.generic_name:"pembrolizumab"/, EMPTY_FDA);
+    mock.on(/label\.json/, EMPTY_LABEL);
+    mock.on(/ndc\.json/, EMPTY_NDC);
+    mock.on(
+      "/api/llm-lookup",
+      llmPayload({
+        agreement: "confirm",
+        status: "approved",
+        confidence: "high",
+        current_indications: ["  ", "", "  melanoma  "],
+        original_indication: "   ",
+      })
+    );
+    mock.install();
+
+    const r = await lookupDrug("pembrolizumab", OPTS);
+
+    expect(r.currentIndications).toEqual(["melanoma"]);
+    expect(r.originalIndication).toBeUndefined();
+  });
+
+  it("clears labelIndicationText + currentIndications when arbiter overrides the candidate (#21/#22)", async () => {
+    // The label text we fetch belongs to the rejected pipeline app, and
+    // the indications enumerated by the arbiter came from that same label
+    // — both must be cleared after an override. We don't refetch for the
+    // LLM-proposed app because the original NDAs that hit this path are
+    // exactly the ones missing from openFDA.
+    mock.on(
+      "/drug/drugsfda.json",
+      drugsfdaApproved({
+        appNum: "ANDA071868",
+        date: "19900604",
+        brand: "CYTARABINE",
+        generic: "CYTARABINE",
+      })
+    );
+    mock.on(/openfda\.application_number:"ANDA071868"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["ANDA071868"] },
+          marketing_category: "ANDA",
+          indications_and_usage: [
+            "Cytarabine is indicated for acute non-lymphocytic leukemia.",
+          ],
+        },
+      ],
+    });
+    mock.on("/drug/ndc.json", EMPTY_NDC);
+    mock.on(
+      "/api/llm-lookup",
+      llmPayload({
+        agreement: "correct",
+        status: "approved",
+        confidence: "high",
+        application_number: "NDA016406",
+        application_type: "NDA",
+        approval_date: "1969-06-24",
+        brand_name: "Cytosar-U",
+        generic_name: "cytarabine",
+        current_indications: [
+          "acute non-lymphocytic leukemia",
+        ],
+        original_indication: "acute leukemia",
+        rationale: "Original Cytosar-U NDA predates openFDA's online window.",
+      })
+    );
+    mock.install();
+
+    const r = await lookupDrug("Cytarabine", OPTS);
+
+    expect(r.resolvedVia).toBe("llm");
+    expect(r.applicationNumber).toBe("NDA016406");
+    // Label text + current indications came from the rejected ANDA's label.
+    expect(r.labelIndicationText).toBeUndefined();
+    expect(r.currentIndications).toBeUndefined();
+    // Original indication is the model's training-knowledge answer about
+    // the corrected approval, not derived from the rejected label.
+    expect(r.originalIndication).toBe("acute leukemia");
+  });
+
+  it("preserves labelIndicationText + currentIndications when arbiter confirms (no override)", async () => {
+    mock.on(
+      /openfda\.brand_name:"pembrolizumab"/,
+      drugsfdaApproved({
+        appNum: "BLA125514",
+        date: "20140904",
+        brand: "KEYTRUDA",
+        generic: "PEMBROLIZUMAB",
+      })
+    );
+    mock.on(/openfda\.generic_name:"pembrolizumab"/, EMPTY_FDA);
+    mock.on(/openfda\.application_number:"BLA125514"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["BLA125514"] },
+          indications_and_usage: ["Keytruda is indicated for melanoma."],
+        },
+      ],
+    });
+    mock.on(/ndc\.json/, EMPTY_NDC);
+    mock.on(
+      "/api/llm-lookup",
+      llmPayload({
+        agreement: "confirm",
+        status: "approved",
+        confidence: "high",
+        application_number: "BLA125514",
+        application_type: "BLA",
+        approval_date: "2014-09-04",
+        current_indications: ["unresectable or metastatic melanoma"],
+        rationale: "Label matches.",
+      })
+    );
+    mock.install();
+
+    const r = await lookupDrug("pembrolizumab", OPTS);
+
+    expect(r.resolvedVia).toBe("openfda_brand");
+    expect(r.applicationNumber).toBe("BLA125514");
+    expect(r.labelIndicationText).toContain("melanoma");
+    expect(r.currentIndications).toEqual([
+      "unresectable or metastatic melanoma",
+    ]);
+  });
+
+  it("handles null/missing indications fields gracefully (#22 — fixtures from #18 still pass)", async () => {
+    mock.on(
+      /openfda\.brand_name:"pembrolizumab"/,
+      drugsfdaApproved({
+        appNum: "BLA125514",
+        date: "20140904",
+        brand: "KEYTRUDA",
+        generic: "PEMBROLIZUMAB",
+      })
+    );
+    mock.on(/openfda\.generic_name:"pembrolizumab"/, EMPTY_FDA);
+    mock.on(/label\.json/, EMPTY_LABEL);
+    mock.on(/ndc\.json/, EMPTY_NDC);
+    mock.on(
+      "/api/llm-lookup",
+      llmPayload({
+        agreement: "confirm",
+        status: "approved",
+        confidence: "high",
+        // current_indications and original_indication intentionally absent
+      })
+    );
+    mock.install();
+
+    const r = await lookupDrug("pembrolizumab", OPTS);
+
+    expect(r.currentIndications).toBeUndefined();
+    expect(r.originalIndication).toBeUndefined();
+    expect(r.status).toBe("approved");
+  });
+
+  it("does not fetch label or invoke arbiter when status is otc_monograph", async () => {
+    // Aspirin: NDC resolves to OTC monograph, arbiter is skipped per the
+    // existing rule, so the new label-grounding fetch must also be skipped.
+    mock.on(/drugsfda\.json/, EMPTY_FDA);
+    mock.on(/label\.json/, EMPTY_LABEL);
+    mock.on(/ndc\.json.*brand_name:"aspirin"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          brand_name: "Aspirin",
+          generic_name: "Aspirin",
+          labeler_name: "GENERIC OTC",
+          marketing_category: "OTC MONOGRAPH DRUG",
+          active_ingredients: [{ name: "ASPIRIN" }],
+        },
+      ],
+    });
+    mock.on(/ndc\.json/, EMPTY_NDC);
+    mock.install();
+
+    const r = await lookupDrug("aspirin", OPTS);
+
+    expect(r.status).toBe("otc_monograph");
+    expect(r.labelIndicationText).toBeUndefined();
+    // No proxy call, no appnum fetch.
+    expect(mock.calledUrls().some((u) => u.includes("/api/llm-lookup"))).toBe(
+      false
+    );
+  });
+});

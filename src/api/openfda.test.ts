@@ -1,6 +1,9 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { FetchMock } from "../test/fetchMock";
-import { queryOpenFdaDrugsFda } from "./openfda";
+import {
+  fetchLabelIndicationByAppNum,
+  queryOpenFdaDrugsFda,
+} from "./openfda";
 
 const FLUOROURACIL_BRAND_FIXTURE = {
   meta: { results: { total: 5 } },
@@ -233,5 +236,200 @@ describe("queryOpenFdaDrugsFda", () => {
     const result = await queryOpenFdaDrugsFda("aspirin", "");
 
     expect(result.status).toBeUndefined();
+  });
+});
+
+describe("fetchLabelIndicationByAppNum", () => {
+  let mock: FetchMock;
+
+  beforeEach(() => {
+    mock = new FetchMock();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns indication text when openFDA has a current label for the appnum", async () => {
+    mock.on(/openfda\.application_number:"BLA125514"/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: {
+            application_number: ["BLA125514"],
+            brand_name: ["KEYTRUDA"],
+            generic_name: ["PEMBROLIZUMAB"],
+          },
+          indications_and_usage: [
+            "1 INDICATIONS AND USAGE KEYTRUDA is indicated for the " +
+              "treatment of patients with unresectable or metastatic melanoma.",
+          ],
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("BLA125514", "");
+
+    expect(result.indicationText).toBeDefined();
+    expect(result.indicationText).toContain("unresectable or metastatic melanoma");
+    expect(result.sources).toHaveLength(1);
+    expect(result.sources[0].hit).toBe(true);
+  });
+
+  it("returns undefined when the label exists but has no indications_and_usage", async () => {
+    mock.on(/openfda\.application_number/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["NDA999999"] },
+          // no indications_and_usage field
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("NDA999999", "");
+
+    expect(result.indicationText).toBeUndefined();
+    expect(result.sources[0].hit).toBe(false);
+    expect(result.sources[0].detail).toBe("no indications section");
+  });
+
+  it("returns undefined when openFDA has no label for the appnum (404)", async () => {
+    mock.notFound(/openfda\.application_number/);
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("NDA000000", "");
+
+    expect(result.indicationText).toBeUndefined();
+    expect(result.sources[0].hit).toBe(false);
+    expect(result.sources[0].detail).toBe("no label");
+  });
+
+  it("strips HIGHLIGHTS OF PRESCRIBING INFORMATION boilerplate from the start", async () => {
+    const labelText =
+      "HIGHLIGHTS OF PRESCRIBING INFORMATION\n" +
+      "These highlights do not include all the information needed to use " +
+      "KEYTRUDA safely and effectively. See full prescribing information " +
+      "for KEYTRUDA. KEYTRUDA injection, for intravenous use Initial U.S. " +
+      "Approval: 2014\n" +
+      "1 INDICATIONS AND USAGE KEYTRUDA is indicated for the treatment of " +
+      "unresectable or metastatic melanoma.";
+    mock.on(/openfda\.application_number/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["BLA125514"] },
+          indications_and_usage: [labelText],
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("BLA125514", "");
+
+    expect(result.indicationText).toBeDefined();
+    expect(result.indicationText).not.toMatch(/HIGHLIGHTS OF PRESCRIBING INFORMATION/);
+    expect(result.indicationText).toContain("1 INDICATIONS AND USAGE");
+    expect(result.indicationText).toContain("melanoma");
+  });
+
+  it("never throws — network errors surface in sources", async () => {
+    // No mock route registered → FetchMock returns 500. The function must
+    // record the error without throwing.
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("NDA123456", "");
+
+    expect(result.indicationText).toBeUndefined();
+    expect(result.sources).toHaveLength(1);
+    expect(result.sources[0].hit).toBe(false);
+  });
+
+  it("prefers NDA/BLA labels over ANDA labels for the same appnum (multi-SPL records)", async () => {
+    // openFDA can return both the original NDA label and a generic ANDA
+    // label for the same molecule. The NDA label has the canonical
+    // indications and should win even if listed second.
+    mock.on(/openfda\.application_number/, {
+      meta: { results: { total: 2 } },
+      results: [
+        {
+          openfda: { application_number: ["NDA012209"] },
+          marketing_category: "ANDA",
+          indications_and_usage: ["ANDA label — minimal indication."],
+        },
+        {
+          openfda: { application_number: ["NDA012209"] },
+          marketing_category: "NDA",
+          indications_and_usage: [
+            "Original NDA label — comprehensive indications across multiple " +
+              "cancer types and dosing schedules.",
+          ],
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("NDA012209", "");
+
+    expect(result.indicationText).toContain("Original NDA label");
+    expect(result.indicationText).not.toContain("ANDA label");
+  });
+
+  it("picks the longest indications text within the same marketing category (most-current label)", async () => {
+    // Two NDA labels with different revision dates aren't distinguishable
+    // by category — pick the one with more text since fully-supplemented
+    // labels grow over time.
+    mock.on(/openfda\.application_number/, {
+      meta: { results: { total: 2 } },
+      results: [
+        {
+          openfda: { application_number: ["BLA125514"] },
+          marketing_category: "BLA",
+          indications_and_usage: ["Old indication: melanoma."],
+        },
+        {
+          openfda: { application_number: ["BLA125514"] },
+          marketing_category: "BLA",
+          indications_and_usage: [
+            "Current indications: melanoma, NSCLC, HNSCC, classical Hodgkin " +
+              "lymphoma, urothelial, MSI-H solid tumors, and more.",
+          ],
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("BLA125514", "");
+
+    expect(result.indicationText).toContain("NSCLC");
+    expect(result.indicationText).toContain("urothelial");
+  });
+
+  it("treats fully-stripped indications as no usable grounding (defensive)", async () => {
+    // Synthetic edge case: the entire indications_and_usage is content
+    // that the boilerplate stripper removes (just "See full prescribing
+    // information…" lines). After stripping, cleaned is empty — must
+    // report as no grounding rather than a zero-char "successful" hit.
+    mock.on(/openfda\.application_number/, {
+      meta: { results: { total: 1 } },
+      results: [
+        {
+          openfda: { application_number: ["NDA000001"] },
+          indications_and_usage: [
+            "See full prescribing information for FOO. " +
+              "See full prescribing information for BAR.",
+          ],
+        },
+      ],
+    });
+    mock.install();
+
+    const result = await fetchLabelIndicationByAppNum("NDA000001", "");
+
+    expect(result.indicationText).toBeUndefined();
+    expect(result.sources[0].hit).toBe(false);
+    expect(result.sources[0].detail).toMatch(/stripping boilerplate/);
   });
 });

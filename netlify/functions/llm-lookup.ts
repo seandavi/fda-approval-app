@@ -23,10 +23,21 @@ import { GoogleGenAI, type Content } from "@google/genai";
 
 const DEFAULT_REGION = process.env.VERTEX_REGION ?? "global";
 const DEFAULT_MODEL = process.env.VERTEX_MODEL ?? "gemini-3.1-flash-lite";
-// Gemini 3 preview uses ~thinking tokens, so it needs headroom even when
-// the final answer is a tiny JSON object. 2048 is plenty for our schema.
-const MAX_TOKENS = 2048;
+// Caps the *generated* (output + thinking) token budget per call. Gemini 3
+// preview uses thinking tokens that count against this even when the final
+// JSON is tiny. Bumped from 2048 to leave reasoning headroom for prompts
+// that now include up to MAX_LABEL_CHARS of grounding text, and to fit
+// response payloads that can include 25+ verbatim indication strings on
+// big-tent oncology drugs (Keytruda, Opdivo). Input/context size is bounded
+// separately by MAX_LABEL_CHARS + MAX_DRUG_NAME_LEN, not by this constant.
+const MAX_TOKENS = 4096;
 const MAX_DRUG_NAME_LEN = 200;
+// Cap on label `indications_and_usage` text included in the prompt.
+// Real labels for big-tent oncology drugs (Keytruda, Opdivo) run 15-20 KB,
+// which is fine for Gemini's context window but costs latency. 24 KB lets
+// even the largest current labels through intact while keeping a ceiling
+// against runaway payloads.
+const MAX_LABEL_CHARS = 24_000;
 
 const SYSTEM_PROMPT =
   "You are an FDA drug-approval lookup assistant for clinicians and " +
@@ -46,6 +57,10 @@ interface PipelineFinding {
   brandName?: string;
   genericName?: string;
   resolvedVia?: string;
+  // Current FDA label `indications_and_usage` text for the candidate, used
+  // as semantic grounding. Truncated server-side to MAX_LABEL_CHARS as a
+  // belt-and-suspenders against pathological client payloads.
+  labelIndicationText?: string;
 }
 
 function userPrompt(name: string, pipeline?: PipelineFinding): string {
@@ -78,6 +93,29 @@ function userPrompt(name: string, pipeline?: PipelineFinding): string {
     : `No deterministic candidate was found. Set "agreement" to ` +
       `"unknown" and provide your best answer for the original approval.\n\n`;
 
+  // Label grounding block. When present, this is the authoritative
+  // current-label `indications_and_usage` text for the candidate's FDA
+  // application. We use it as a semantic cross-check: if the label clearly
+  // describes a different molecule or therapy area than the candidate
+  // implies, that's a strong signal the deterministic resolver picked the
+  // wrong application (the dominant #6 failure mode).
+  const labelBlock =
+    pipeline?.labelIndicationText && pipeline.labelIndicationText.trim()
+      ? `Current FDA label "Indications and Usage" section for the candidate ` +
+        `application (truncated if >${MAX_LABEL_CHARS} chars):\n` +
+        `<<<LABEL\n${pipeline.labelIndicationText.slice(0, MAX_LABEL_CHARS)}\nLABEL>>>\n\n` +
+        `Use this label text as the primary semantic check on the candidate.\n` +
+        `- If the label clearly describes a DIFFERENT molecule or therapy area ` +
+        `than the candidate's brand_name / generic_name imply, treat that as ` +
+        `evidence the resolver matched the wrong application — set "agreement" ` +
+        `to "correct" (with your earlier record) or "unknown" if you cannot ` +
+        `produce a confident corrected record.\n` +
+        `- If the label is consistent with the candidate, that strengthens ` +
+        `the case for "confirm".\n` +
+        `- Do not contradict the label text with claims about indications ` +
+        `not visible in it.\n\n`
+      : "";
+
   const schema =
     `Return JSON with this exact shape:\n` +
     `{\n` +
@@ -89,6 +127,8 @@ function userPrompt(name: string, pipeline?: PipelineFinding): string {
     `  "application_type": "NDA" | "BLA" | "ANDA" | null,\n` +
     `  "approval_date": "YYYY-MM-DD" | null,  // ORIGINAL approval, not later supplements\n` +
     `  "sponsor": string | null,\n` +
+    `  "current_indications": string[] | null,   // every distinct indication on the provided label, verbatim\n` +
+    `  "original_indication": string | null,     // disease/condition at first FDA approval; null if uncertain\n` +
     `  "confidence": "high" | "medium" | "low",\n` +
     `  "rationale": string                    // 1-2 sentences explaining the verdict\n` +
     `}\n\n` +
@@ -97,9 +137,19 @@ function userPrompt(name: string, pipeline?: PipelineFinding): string {
     `- Withdrawn/discontinued products are still "approved" or "discontinued".\n` +
     `- approval_date must be the FIRST FDA approval, even if decades old.\n` +
     `- If unsure of exact date or application number, set them to null and ` +
-    `lower confidence — do not guess.`;
+    `lower confidence — do not guess.\n` +
+    `- current_indications must be drawn FROM THE PROVIDED LABEL TEXT ONLY. ` +
+    `Enumerate every distinct indication. Do not summarize, do not deduplicate ` +
+    `by therapy area, do not normalize phrasing. Use verbatim wording from ` +
+    `the label, including biomarker requirements, lines of therapy, and ` +
+    `combination partners. If no label text was provided, set current_indications ` +
+    `to null — do NOT fall back to your training knowledge for this field.\n` +
+    `- original_indication is the disease/condition for which the drug was ` +
+    `FIRST approved by FDA (anchored to approval_date). This MAY draw on your ` +
+    `training knowledge when the current label does not reflect the original ` +
+    `indication — but set it to null if you are uncertain.`;
 
-  return base + context + schema;
+  return base + context + labelBlock + schema;
 }
 
 // JSON schema we ask Gemini to produce. Using response_schema constrains
@@ -125,9 +175,17 @@ const RESPONSE_SCHEMA = {
     },
     approval_date: { type: "string", nullable: true },
     sponsor: { type: "string", nullable: true },
+    current_indications: {
+      type: "array",
+      items: { type: "string" },
+      nullable: true,
+    },
+    original_indication: { type: "string", nullable: true },
     confidence: { type: "string", enum: ["high", "medium", "low"] },
     rationale: { type: "string" },
   },
+  // Leave indications optional so prior arbiter regression fixtures
+  // (#13/#18) continue to validate without a flag day.
   required: ["agreement", "status", "confidence", "rationale"],
 } as const;
 
@@ -267,6 +325,19 @@ export default async (req: Request): Promise<Response> => {
     return json({ error: "drugName too long" }, 400);
   }
 
+  // Defensive: sanitize the label-text grounding field. Truncate to the
+  // cap and drop it entirely if the type is wrong. Belt-and-suspenders for
+  // a client that might serialize garbage.
+  const pipelineFinding: PipelineFinding | undefined = body.pipelineFinding
+    ? {
+        ...body.pipelineFinding,
+        labelIndicationText:
+          typeof body.pipelineFinding.labelIndicationText === "string"
+            ? body.pipelineFinding.labelIndicationText.slice(0, MAX_LABEL_CHARS)
+            : undefined,
+      }
+    : undefined;
+
   const ip = clientIp(req);
   if (!takeToken(ip)) {
     return json(
@@ -287,7 +358,7 @@ export default async (req: Request): Promise<Response> => {
     const contents: Content[] = [
       {
         role: "user",
-        parts: [{ text: userPrompt(drugName, body.pipelineFinding) }],
+        parts: [{ text: userPrompt(drugName, pipelineFinding) }],
       },
     ];
     const response = await cfg.client.models.generateContent({

@@ -2,7 +2,8 @@
 
 A single-page web app for resolving a list of drug names — brand names, generic
 INNs, or internal company codes like `MK-3475` — against a layered set of
-public APIs to determine FDA approval status.
+public APIs to determine FDA approval status, original approval date, and
+the verbatim indications on the current FDA label.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6.svg)](https://www.typescriptlang.org/)
@@ -12,18 +13,25 @@ public APIs to determine FDA approval status.
 **Live demo**: [fda-approvals.cancerdatasci.org](https://fda-approvals.cancerdatasci.org)
 
 The frontend runs entirely in the browser. A single optional Netlify
-Function proxies the last-resort LLM lookup (Layer 7) so users don't need
-their own LLM API key; with that disabled, the app remains a pure static
-site deployable to any host.
+Function proxies the LLM arbiter (Layer 7) so users don't need their own
+LLM API key; with that disabled, the app remains a pure static site
+deployable to any host (the deterministic layers 1-6 still resolve the
+vast majority of drugs).
 
 ---
 
 ## Features
 
 - **Seven-layer lookup pipeline** — openFDA `drugsfda` → openFDA `label` →
-  openFDA `ndc` → RxNorm → ChEMBL → ClinicalTrials.gov → Gemini (Vertex
-  AI), short-circuiting on first hit. The LLM layer is optional and only
-  runs when the prior six can't resolve a name.
+  openFDA `ndc` → RxNorm → ChEMBL → ClinicalTrials.gov → Gemini arbiter
+  (Vertex AI). Layers 1-6 short-circuit on first hit. Layer 7 verifies the
+  candidate against the current FDA label and either confirms, corrects
+  with an earlier original approval, or flags uncertainty.
+- **Indications (current FDA label, verbatim)** — Layer 7 also extracts
+  every indication from the resolved label exactly as written, including
+  biomarker requirements, lines of therapy, and combination partners. No
+  taxonomy normalization — those distinctions are part of what the FDA
+  approved.
 - **Beyond NDA/BLA/ANDA** — the NDC layer captures drugs marketed under
   the FDA OTC monograph (aspirin, ibuprofen, acetaminophen) and those
   marketed without approval (homeopathic, etc.), with explicit status
@@ -31,19 +39,25 @@ site deployable to any host.
 - **ID translation** — internal codes (MK-3475, MEDI4736, AZD9291) are
   resolved to their INN via ChEMBL's structured synonym data, then re-run
   through the FDA layers.
-- **Auditable** — every API call is recorded as a SourceHit and viewable
-  inline per result, so misses are debuggable in seconds.
+- **Auditable** — every API call is recorded as a SourceHit and visible
+  in the per-drug detail panel, so misses are debuggable in seconds.
+- **Two-phase UI** — landing page with the gap statement, a workflow
+  strip, and the input controls; submit moves to a results page with a
+  dense table + sticky master-detail panel. "Edit input" returns to the
+  landing page with the batch preserved.
 - **Batch input** — paste a list (capped at `VITE_BATCH_LIMIT`, default 100),
   get a sortable / filterable table.
-- **Viewport-locked dashboard** — input on the left, results on the right,
-  results scroll internally so the controls stay visible.
-- **CSV export** of all resolved fields.
+- **CSV export** of all resolved fields, including `originalIndication`
+  and pipe-delimited `currentIndications`. Always-quote RFC 4180 + UTF-8
+  BOM + CRLF makes it open cleanly in Excel on Windows.
 - **Local cache** with 7-day TTL (configurable) keyed by normalized name.
-- **In-app feedback** — header **Feedback** link and a per-row **Report**
-  action open pre-filled GitHub issues (with the full SourceHit trail
-  for wrong-result reports). One-click for users with a GitHub account.
-- **Built-in About page** — data flow, data sources, and technical
-  implementation are documented inside the app, not just in the README.
+- **In-app feedback** — header **Feedback** link and a per-result
+  **Report** action open pre-filled GitHub issues (with the full SourceHit
+  trail for wrong-result reports). One-click for users with a GitHub
+  account.
+- **Built-in About page** — data flow, indication extraction, data
+  sources, and technical implementation are documented inside the app,
+  not just in the README.
 - **Privacy-preserving** — openFDA API keys are redacted from stored URLs;
   optional GA4 events use a stable hash of the normalized name.
 
@@ -99,12 +113,21 @@ Vite's `base` path is controlled by `VITE_BASE_PATH` at build time:
 
 You'll get a `*.netlify.app` URL plus a fresh preview deploy on every PR.
 
-#### Optional: enable the Layer 7 LLM fallback
+#### Optional: enable the Layer 7 LLM arbiter
 
 The `/api/llm-lookup` Netlify Function in [`netlify/functions/`](netlify/functions/llm-lookup.ts)
-calls Gemini via Vertex AI for drugs whose original approval predates
-openFDA's online data (Cosmegen 1964, Velban 1961, Cytosar-U 1969, etc.).
-Without it, those drugs return `not_found` or a much later ANDA date.
+calls Gemini via Vertex AI to:
+
+1. Verify the deterministic pipeline's result against the candidate's
+   current FDA label `indications_and_usage` text (catches wrong-molecule
+   resolutions like aspirin → Aggrenox).
+2. Correct the result when the original innovator NDA predates openFDA's
+   online window (Cosmegen 1964, Velban 1961, Cytosar-U 1969, etc.).
+3. Extract the verbatim current indications + a best-guess original-approval
+   indication.
+
+Without it, drugs whose innovator NDA is missing from openFDA return a
+much later ANDA date, and the per-drug detail panel shows no indications.
 
 Setup (one-time):
 
@@ -204,24 +227,32 @@ to events, so reports surface aggregate patterns without storing PII.
 
 ```
 src/
-  api/openfda.ts        layers 1 (drugsfda) and 2 (label)
+  api/openfda.ts        layers 1 (drugsfda), 2 (label), and label-by-appnum
+                        fetch used as arbiter grounding
   api/ndc.ts            layer 3 (NDC directory — OTC monograph, unapproved-marketed)
   api/rxnorm.ts         layer 4
   api/chembl.ts         layer 5
   api/clinicaltrials.ts layer 6
   api/llm.ts            layer 7 client — POSTs to /api/llm-lookup
-  lookup.ts             orchestrates the pipeline with short-circuit
+  lookup.ts             orchestrates the pipeline, runs the arbiter
   cache.ts              localStorage result cache (7d default TTL)
+  csv.ts                RFC 4180 always-quote, UTF-8 BOM, CRLF CSV writer
   normalize.ts          name cleanup + INN heuristics
   analytics.ts          GA4 wrapper
   feedback.ts           builds pre-filled GitHub issue URLs for in-app feedback
-  components/           InputPanel, ResultsTable, ResultRow, ResultsStrip,
-                        StatusBadge, ProgressBar, ExportButton,
-                        SettingsPanel, AboutPage, InfoTooltip
+  components/           LandingPage (gap statement + workflow strip + input),
+                        ResultsPage (table + master-detail panel),
+                        DetailPanel, ResultsTable, ResultRow,
+                        ResultsStrip, StatusBadge, ProgressBar,
+                        ExportButton, SettingsPanel, InputPanel,
+                        AboutPage, InfoTooltip
 
 netlify/
   functions/llm-lookup.ts  Vertex AI proxy. Holds the service-account
                            credential; client never sees an LLM key.
+                           Receives the candidate + its label indication
+                           text and asks the model to confirm/correct +
+                           enumerate current indications.
 scripts/
   setup-gcp.sh             Idempotent GCP project / SA / key bootstrap.
 ```
@@ -229,24 +260,36 @@ scripts/
 ### Data flow
 
 ```
-                      ┌─────────────────────────────┐
-                      │       Browser (Vite SPA)    │
-                      │ ┌─────────────────────────┐ │
-                      │ │   lookup.ts (Layers 1-6)│ │──► openFDA, RxNorm,
-                      │ └─────────────────────────┘ │    ChEMBL, CT.gov
-                      │              │              │
-                      │              ▼ if unresolved│
-                      │ ┌─────────────────────────┐ │
-                      │ │ llm.ts (Layer 7 client) │ │── POST /api/llm-lookup
-                      │ └─────────────────────────┘ │            │
-                      └─────────────────────────────┘            │
-                                                                 │
-                            same origin (Netlify)                ▼
+                      ┌──────────────────────────────────┐
+                      │       Browser (Vite SPA)         │
+                      │ ┌──────────────────────────────┐ │
+                      │ │ lookup.ts                    │ │── openFDA, RxNorm,
+                      │ │  Layers 1-6 (deterministic)  │ │   ChEMBL, CT.gov
+                      │ └──────────────────────────────┘ │
+                      │              │ resolved appNum   │
+                      │              ▼                   │
+                      │ ┌──────────────────────────────┐ │
+                      │ │ fetchLabelIndicationByAppNum │ │── openFDA /drug/label
+                      │ │   indications_and_usage      │ │
+                      │ └──────────────────────────────┘ │
+                      │              │                   │
+                      │              ▼                   │
+                      │ ┌──────────────────────────────┐ │
+                      │ │ llm.ts (Layer 7 client)      │ │── POST /api/llm-lookup
+                      │ │   sends candidate + label    │ │            │
+                      │ └──────────────────────────────┘ │            │
+                      └──────────────────────────────────┘            │
+                                                                      │
+                            same origin (Netlify)                     ▼
                       ┌─────────────────────────────────────────────────┐
                       │        Netlify Function: llm-lookup.ts          │
                       │ • Service account auth (env: GOOGLE_APP…JSON)   │
                       │ • Rate limit (per IP, token bucket)             │
-                      │ • Caps: max_tokens, drug-name length, allowlist │
+                      │ • Truncates label text to MAX_LABEL_CHARS       │
+                      │ • Caps: max_tokens, drug-name length            │
+                      │ • Returns: confirm/correct/unknown + current    │
+                      │   and original indications, all verbatim from   │
+                      │   the label we provided                         │
                       └─────────────────────────────────────────────────┘
                                           │
                                           ▼

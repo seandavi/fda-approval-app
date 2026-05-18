@@ -47,6 +47,21 @@ export interface DrugResult {
   pipelineApplicationNumber?: string;
   pipelineApprovalDate?: string;
   pipelineResolvedVia?: ResolvedVia;
+  // Current FDA label `indications_and_usage` text for the resolved
+  // application, stripped of boilerplate. Used as grounding context for the
+  // Layer 7 arbiter and as the source of truth for any indication
+  // enrichment built on top of it.
+  labelIndicationText?: string;
+  // Verbatim indications enumerated by the Layer 7 arbiter from
+  // labelIndicationText. Each entry uses the label's own phrasing,
+  // including biomarker requirements, lines of therapy, and combination
+  // partners. Populated only when the arbiter ran with grounding text.
+  currentIndications?: string[];
+  // The condition the drug was originally approved for, anchored to
+  // approvalDate. May draw on the model's training knowledge since the
+  // current label often reflects only later supplements. Lower-confidence
+  // than currentIndications — surface accordingly.
+  originalIndication?: string;
   sources: SourceHit[];
   cached: boolean;
   lookedUpAt: string;
