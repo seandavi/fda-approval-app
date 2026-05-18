@@ -37,8 +37,16 @@ export interface DrugResult {
   approvalDate?: string;
   sponsor?: string;
   marketingCategory?: string; // populated for NDC-resolved results (e.g. "OTC MONOGRAPH DRUG")
-  llmConfidence?: "high" | "medium" | "low"; // populated when LLM fallback resolves a result
+  // LLM verifier output (always populated when the Layer 7 model ran)
+  llmAgreement?: "confirm" | "correct" | "unknown";
+  llmConfidence?: "high" | "medium" | "low";
   llmRationale?: string;
+  // When the LLM overrode a deterministic-pipeline candidate, the original
+  // pipeline finding is preserved here so the UI / CSV export can show the
+  // override side-by-side. Empty when the LLM confirmed or wasn't invoked.
+  pipelineApplicationNumber?: string;
+  pipelineApprovalDate?: string;
+  pipelineResolvedVia?: ResolvedVia;
   sources: SourceHit[];
   cached: boolean;
   lookedUpAt: string;

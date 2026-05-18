@@ -38,28 +38,68 @@ const SYSTEM_PROMPT =
   "fabricate application numbers or dates. Respond with ONLY a single JSON " +
   "object, no prose, no markdown fencing.";
 
-function userPrompt(name: string): string {
-  return (
-    `Look up the original FDA approval for: ${JSON.stringify(name)}\n\n` +
+interface PipelineFinding {
+  status?: string;
+  applicationNumber?: string;
+  applicationType?: string;
+  approvalDate?: string;
+  brandName?: string;
+  genericName?: string;
+  resolvedVia?: string;
+}
+
+function userPrompt(name: string, pipeline?: PipelineFinding): string {
+  const base = `Look up the original FDA approval for: ${JSON.stringify(name)}.\n\n`;
+
+  // When the deterministic pipeline already has a candidate, give it to
+  // the model as a seed. The model's job is to confirm OR override with a
+  // meaningfully earlier original. This is the "verifier" pattern — the
+  // model has way less room to hallucinate when grounded in a concrete
+  // proposal vs. asked blank-slate.
+  const context = pipeline
+    ? `Our deterministic resolver (openFDA + RxNorm + ChEMBL) returned this ` +
+      `candidate. openFDA's online dataset is incomplete for many ` +
+      `pre-2000 NDAs, so the earliest visible record is sometimes a later ` +
+      `ANDA or reformulation rather than the original innovator NDA.\n` +
+      `  status:             ${pipeline.status ?? "unknown"}\n` +
+      `  application_number: ${pipeline.applicationNumber ?? "(none)"}\n` +
+      `  application_type:   ${pipeline.applicationType ?? "(none)"}\n` +
+      `  approval_date:      ${pipeline.approvalDate ?? "(none)"}\n` +
+      `  brand_name:         ${pipeline.brandName ?? "(none)"}\n` +
+      `  generic_name:       ${pipeline.genericName ?? "(none)"}\n` +
+      `  resolved_via:       ${pipeline.resolvedVia ?? "(none)"}\n\n` +
+      `Set "agreement" to "confirm" when this candidate IS the original ` +
+      `FDA approval for the active ingredient. Set "correct" when you ` +
+      `know of a meaningfully earlier original approval for the same ` +
+      `molecule that's missing from the dataset — fill in that earlier ` +
+      `record. Set "unknown" if you're not sure. Don't override a ` +
+      `correct candidate with a hallucinated earlier one — only correct ` +
+      `when the earlier date is well-attested.\n\n`
+    : `No deterministic candidate was found. Set "agreement" to ` +
+      `"unknown" and provide your best answer for the original approval.\n\n`;
+
+  const schema =
     `Return JSON with this exact shape:\n` +
     `{\n` +
+    `  "agreement": "confirm" | "correct" | "unknown",\n` +
     `  "status": "approved" | "discontinued" | "otc_monograph" | "not_found",\n` +
-    `  "brand_name": string | null,\n` +
-    `  "generic_name": string | null,\n` +
-    `  "application_number": string | null,\n` +
+    `  "brand_name": string | null,           // original/innovator brand\n` +
+    `  "generic_name": string | null,         // INN or generic name\n` +
+    `  "application_number": string | null,   // e.g. "NDA021743" — include the prefix\n` +
     `  "application_type": "NDA" | "BLA" | "ANDA" | null,\n` +
-    `  "approval_date": "YYYY-MM-DD" | null,\n` +
+    `  "approval_date": "YYYY-MM-DD" | null,  // ORIGINAL approval, not later supplements\n` +
     `  "sponsor": string | null,\n` +
     `  "confidence": "high" | "medium" | "low",\n` +
-    `  "rationale": string\n` +
+    `  "rationale": string                    // 1-2 sentences explaining the verdict\n` +
     `}\n\n` +
     `Rules:\n` +
     `- For internal/research codes (MK-3475, AZD9291) translate to INN first.\n` +
-    `- Withdrawn or discontinued products are still "approved" or "discontinued".\n` +
-    `- approval_date must be the FIRST FDA approval, even for older drugs.\n` +
-    `- If unsure of exact date or application number, set those to null and ` +
-    `lower confidence — do not guess.`
-  );
+    `- Withdrawn/discontinued products are still "approved" or "discontinued".\n` +
+    `- approval_date must be the FIRST FDA approval, even if decades old.\n` +
+    `- If unsure of exact date or application number, set them to null and ` +
+    `lower confidence — do not guess.`;
+
+  return base + context + schema;
 }
 
 // JSON schema we ask Gemini to produce. Using response_schema constrains
@@ -67,6 +107,10 @@ function userPrompt(name: string): string {
 const RESPONSE_SCHEMA = {
   type: "object",
   properties: {
+    agreement: {
+      type: "string",
+      enum: ["confirm", "correct", "unknown"],
+    },
     status: {
       type: "string",
       enum: ["approved", "discontinued", "otc_monograph", "not_found"],
@@ -84,7 +128,7 @@ const RESPONSE_SCHEMA = {
     confidence: { type: "string", enum: ["high", "medium", "low"] },
     rationale: { type: "string" },
   },
-  required: ["status", "confidence", "rationale"],
+  required: ["agreement", "status", "confidence", "rationale"],
 } as const;
 
 // Token bucket per client IP. Lives in module scope so it survives within a
@@ -195,6 +239,9 @@ function getVertexConfig(): VertexConfig | { error: string } {
 
 interface RequestBody {
   drugName?: string;
+  // The client passes the deterministic pipeline's finding (if any) so the
+  // model can verify-or-correct rather than reason blank-slate.
+  pipelineFinding?: PipelineFinding;
   // model is accepted for forward compatibility but currently ignored — the
   // server-side env var is the source of truth.
   model?: string;
@@ -238,7 +285,10 @@ export default async (req: Request): Promise<Response> => {
 
   try {
     const contents: Content[] = [
-      { role: "user", parts: [{ text: userPrompt(drugName) }] },
+      {
+        role: "user",
+        parts: [{ text: userPrompt(drugName, body.pipelineFinding) }],
+      },
     ];
     const response = await cfg.client.models.generateContent({
       model: cfg.model,

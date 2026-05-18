@@ -3,6 +3,7 @@ import type { ApprovalStatus, SourceHit } from "../types";
 const PROXY_URL = "/api/llm-lookup";
 
 interface LLMResponseShape {
+  agreement?: "confirm" | "correct" | "unknown";
   status?: ApprovalStatus | "otc_monograph";
   brand_name?: string | null;
   generic_name?: string | null;
@@ -14,7 +15,18 @@ interface LLMResponseShape {
   rationale?: string;
 }
 
+export interface PipelineFinding {
+  status?: ApprovalStatus;
+  applicationNumber?: string;
+  applicationType?: "NDA" | "BLA" | "ANDA";
+  approvalDate?: string;
+  brandName?: string;
+  genericName?: string;
+  resolvedVia?: string;
+}
+
 export interface LLMPartial {
+  agreement?: "confirm" | "correct" | "unknown";
   status?: ApprovalStatus;
   brandName?: string;
   genericName?: string;
@@ -32,6 +44,10 @@ export interface LLMOptions {
   // (vite dev without `netlify dev`) has no proxy, so we don't bother
   // calling it; production builds enable this automatically.
   enableProxy: boolean;
+  // Deterministic-pipeline candidate sent to the model as a seed. With it,
+  // the model verifies or corrects rather than reasoning blank-slate —
+  // which dramatically cuts hallucination on otherwise-unanchored queries.
+  pipelineFinding?: PipelineFinding;
 }
 
 function extractJson(text: string): unknown {
@@ -82,7 +98,10 @@ export async function queryLLM(
     const r = await fetch(PROXY_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ drugName: name }),
+      body: JSON.stringify({
+        drugName: name,
+        pipelineFinding: opts.pipelineFinding,
+      }),
     });
     if (!r.ok) {
       const detail = await r.text().catch(() => "");
@@ -116,44 +135,20 @@ export async function queryLLM(
       return { sources };
     }
     const status = mapStatus(parsed.status);
-    if (!status || status === "not_found") {
-      sources.push({
-        api,
-        url: safeUrl,
-        hit: false,
-        detail: `status=${parsed.status ?? "?"} (conf=${parsed.confidence ?? "?"})`,
-      });
-      return {
-        sources,
-        confidence: parsed.confidence,
-        rationale: parsed.rationale,
-      };
-    }
-    // Treat "low" confidence as not actionable — many lookups for
-    // nonexistent drugs return low-confidence guesses. Surface the
-    // rationale via the source record so users can still see what the
-    // model thought.
-    if (parsed.confidence === "low") {
-      sources.push({
-        api,
-        url: safeUrl,
-        hit: false,
-        detail: `low-confidence ${parsed.status} — ${parsed.rationale ?? ""}`.trim(),
-      });
-      return {
-        sources,
-        confidence: parsed.confidence,
-        rationale: parsed.rationale,
-      };
-    }
     const appNum = normalizeAppNum(parsed.application_number ?? undefined);
+    const agreement = parsed.agreement ?? "unknown";
     sources.push({
       api,
       url: safeUrl,
-      hit: true,
-      detail: `${parsed.status} ${appNum ?? ""} (${parsed.confidence ?? "?"})`.trim(),
+      hit: !!status && status !== "not_found",
+      detail: `${agreement} ${parsed.status ?? "?"} ${appNum ?? ""} (conf=${parsed.confidence ?? "?"})`.trim(),
     });
+    // Always return the parsed payload so the resolver's override logic
+    // can apply its own thresholds (confidence + date gap + same-molecule
+    // check). Pre-filtering for confidence='low' here would hide useful
+    // "the candidate is right" confirmations.
     return {
+      agreement,
       status,
       brandName: parsed.brand_name ?? undefined,
       genericName: parsed.generic_name ?? undefined,
