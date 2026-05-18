@@ -52,6 +52,12 @@ export interface DrugResult {
   // Layer 7 arbiter and as the source of truth for any indication
   // enrichment built on top of it.
   labelIndicationText?: string;
+  // Application whose label provided labelIndicationText / currentIndications.
+  // Usually equals applicationNumber. Differs when the arbiter overrode the
+  // pipeline candidate but the LLM-proposed application has no openFDA label
+  // (e.g. imatinib NDA021335) — we keep the pipeline candidate's same-molecule
+  // indications and record their true source here (#45).
+  indicationApplicationNumber?: string;
   // Verbatim indications enumerated by the Layer 7 arbiter from
   // labelIndicationText. Each entry uses the label's own phrasing,
   // including biomarker requirements, lines of therapy, and combination
