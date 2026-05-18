@@ -65,6 +65,9 @@ export function ResultRow({ result, defaultExpanded }: Props) {
         <td className="px-3 py-2 align-top text-slate-700">
           {result.brandName ?? "—"}
         </td>
+        <td className="px-3 py-2 align-top text-slate-700 whitespace-nowrap tabular-nums">
+          {result.approvalDate ?? "—"}
+        </td>
         <td className="px-3 py-2 align-top text-slate-700">
           {result.sponsor ?? "—"}
         </td>
@@ -74,16 +77,11 @@ export function ResultRow({ result, defaultExpanded }: Props) {
       </tr>
       {expanded && (
         <tr className="border-t border-slate-100 bg-slate-50">
-          <td colSpan={9} className="px-3 py-3">
+          <td colSpan={10} className="px-3 py-3">
             <div className="flex items-baseline justify-between gap-3 mb-2">
               <div className="text-xs text-slate-600">
                 Looked up {new Date(result.lookedUpAt).toLocaleString()} · Normalized:{" "}
                 <code className="bg-white px-1 rounded">{result.normalizedName}</code>
-                {result.approvalDate && (
-                  <>
-                    {" "}· Approval date: <code>{result.approvalDate}</code>
-                  </>
-                )}
                 {result.marketingCategory && (
                   <>
                     {" "}· Marketing: <code>{result.marketingCategory}</code>

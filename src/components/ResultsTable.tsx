@@ -11,6 +11,7 @@ type SortKey =
   | "applicationNumber"
   | "applicationType"
   | "brandName"
+  | "approvalDate"
   | "sponsor"
   | "resolvedVia";
 
@@ -43,6 +44,12 @@ const HEADERS: Array<{ key: SortKey; label: string; tooltip?: string }> = [
   },
   { key: "applicationType", label: "Type" },
   { key: "brandName", label: "Brand" },
+  {
+    key: "approvalDate",
+    label: "Approval Date",
+    tooltip:
+      "Earliest FDA approval date for the chosen application (NDA/BLA/ANDA). Sourced from openFDA drugsfda submissions; not populated for OTC monograph or unapproved-marketed records.",
+  },
   { key: "sponsor", label: "Sponsor" },
   {
     key: "resolvedVia",
@@ -73,6 +80,8 @@ function valueFor(r: DrugResult, key: SortKey): string | undefined {
       return r.applicationType;
     case "brandName":
       return r.brandName;
+    case "approvalDate":
+      return r.approvalDate;
     case "sponsor":
       return r.sponsor;
     case "resolvedVia":
