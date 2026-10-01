@@ -150,7 +150,6 @@ All env vars are read at build time via `import.meta.env`.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `VITE_GA_MEASUREMENT_ID` | _empty_ | Google Analytics 4 measurement ID (`G-XXXXXXXXXX`). GA is skipped silently if blank. See [Analytics](#analytics) below. |
 | `VITE_BATCH_LIMIT` | `100` | Hard cap on names per batch lookup. |
 | `VITE_GITHUB_REPO` | `seandavi/fda-approval-app` | Target repo for in-app feedback / report links. Forks should override this. |
 | `VITE_BASE_PATH` | `/` | URL base path. Leave default for Netlify / Cloudflare Pages / custom domain; set to `/<repo-name>/` for GitHub Pages project pages. |
@@ -175,8 +174,8 @@ Vite's `base` path is controlled by `VITE_BASE_PATH` at build time:
 3. The `netlify.toml` in the repo picks up the build command, publish dir,
    Node version, SPA redirect, and cache headers automatically. Skip the
    advanced UI fields.
-4. **Site settings → Environment variables**: add
-   `VITE_GA_MEASUREMENT_ID` (if you have one) so the build picks it up.
+4. **Site settings → Environment variables**: none needed for analytics
+   (the GA4 ID is hard-coded in `index.html`).
 5. Deploy.
 
 You'll get a `*.netlify.app` URL plus a fresh preview deploy on every PR.
@@ -270,13 +269,10 @@ substitute your own subdomain.
 
 ## Analytics
 
-Optional. Create a GA4 property (one per site), add a Web data stream
-pointed at your deploy URL, and copy the **Measurement ID**
-(`G-XXXXXXXXXX`) into `VITE_GA_MEASUREMENT_ID` on Netlify. Trigger a
-redeploy so the build picks it up.
-
-`gtag.js` is loaded conditionally in `index.html` — if the env var is
-empty, no Google scripts are fetched.
+Analytics go to the consolidated GA4 property "Sean Davis — web"
+(`G-KLLV1GCF4E`), hard-coded in `index.html` with
+`content_group: 'fda-approvals'`. `gtag.js` is not loaded on non-production
+hosts (localhost, raw IPs, `*.netlify.app`, `*.workers.dev`, `*.ts.net`).
 
 The app fires these custom events out of the box (see `src/lookup.ts`):
 
