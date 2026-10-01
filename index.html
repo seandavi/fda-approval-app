@@ -10,8 +10,19 @@
       content="Resolve drug names against FDA, RxNorm, NCI, and ClinicalTrials.gov to determine approval status."
     />
     <script type="module">
-      const gaId = import.meta.env.VITE_GA_MEASUREMENT_ID;
-      if (gaId) {
+      const gaId = "G-KLLV1GCF4E";
+      const host = location.hostname;
+      const isProd = !(
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "[::1]" ||
+        /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ||
+        host.includes(":") ||
+        host.endsWith(".workers.dev") ||
+        host.endsWith(".netlify.app") ||
+        host.endsWith(".ts.net")
+      );
+      if (isProd) {
         const s = document.createElement("script");
         s.async = true;
         s.src = `https://www.googletagmanager.com/gtag/js?id=${gaId}`;
@@ -21,7 +32,7 @@
           window.dataLayer.push(arguments);
         };
         window.gtag("js", new Date());
-        window.gtag("config", gaId);
+        window.gtag("config", gaId, { content_group: "fda-approvals" });
       }
     </script>
   </head>
